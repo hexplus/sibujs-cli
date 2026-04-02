@@ -6,15 +6,14 @@ Command-line tool for creating and managing [SibuJS](https://github.com/hexplus/
 
 ```bash
 npm install -g sibujs-cli
+sibujs create my-app
 ```
 
-Or use it directly with `npx`:
+Or use it directly with `npx` (no install needed):
 
 ```bash
-npx sibujs-cli create my-app
+npx sibujs create my-app
 ```
-
-Once installed globally the CLI is available as `sibujs`.
 
 ## Commands
 

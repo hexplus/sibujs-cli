@@ -18,7 +18,7 @@ Once installed globally the CLI is available as `sibujs`.
 
 ## Commands
 
-### `sibujscreate [name]`
+### `sibujs create [name]`
 
 Scaffold a new SibuJS project with Vite and TypeScript.
 
@@ -30,7 +30,7 @@ Without flags the simplest possible app is created. Add flags to opt into featur
 
 | Flag             | Description                                                                                             |
 | ---------------- | ------------------------------------------------------------------------------------------------------- |
-| `--ui <theme>` | Add sibujs-ui with a theme color (includes Tailwind CSS). Themes: default, blue, green, red, orange, amber, yellow, teal, purple, violet, rose |
+| `--ui [theme]` | Add sibujs-ui with a theme color (includes Tailwind CSS). Themes: default, blue, green, red, orange, amber, yellow, teal, purple, violet, rose |
 | `--router`     | Add routing with example pages                                                                          |
 | `--tailwind`   | Add Tailwind CSS without sibujs-ui                                                                      |
 
@@ -69,13 +69,13 @@ When `--router` is selected the project also includes:
 
 When `--ui` is selected, `sibujs-ui` and the default theme are added automatically.
 
-### `sibujsgenerate <type> <name>` (alias: `sibujsg`)
+### `sibujs generate <type> <name>` (alias: `sibujs g`)
 
 Generate a new component file.
 
 ```bash
 sibujs generate component MyButton
-sibujs gcomponent Navbar
+sibujs g component Navbar
 ```
 
 Creates a component file in `src/components/` (if the directory exists) or `src/`. Names are converted to PascalCase automatically.
@@ -84,7 +84,7 @@ Creates a component file in `src/components/` (if the directory exists) or `src/
 | ------------- | ----------------------------------- |
 | `component` | Creates a SibuJS component function |
 
-### `sibujsdev`
+### `sibujs dev`
 
 Start the Vite development server with hot module replacement.
 
@@ -100,7 +100,7 @@ sibujs dev --host 0.0.0.0
 | `--port <port>`    | Port number                                           |
 | `--host [address]` | Host address (bare `--host` exposes on `0.0.0.0`) |
 
-### `sibujsbuild`
+### `sibujs build`
 
 Build the project for production using Vite.
 
@@ -113,7 +113,7 @@ sibujs build --ssr
 | --------- | ------------------------------- |
 | `--ssr` | Build for server-side rendering |
 
-### `sibujspreview`
+### `sibujs preview`
 
 Serve the production build locally for testing.
 
@@ -127,7 +127,7 @@ sibujs preview --port 5000
 | `--port <port>`    | Port number  |
 | `--host [address]` | Host address |
 
-### `sibujslint [...files]`
+### `sibujs lint [...files]`
 
 Lint source files for SibuJS best practices. Scans `src/` by default, or specify files explicitly.
 
@@ -144,7 +144,7 @@ Built-in rules:
 | `no-direct-dom-mutation`   | Warns against `.innerHTML =` mutations — use reactive bindings instead                                      |
 | `each-requires-key`        | Ensures `each()` calls include a `key` option for efficient list updates                                   |
 
-### `sibujsanalyze`
+### `sibujs analyze`
 
 Analyze the bundle size impact of all SibuJS and sibujs-ui imports in your project.
 
@@ -160,7 +160,7 @@ Output shows each imported API, its usage count, and estimated tree-shaken size.
 sibujs create my-app --tailwind --router
 cd my-app
 sibujs dev          # develop with HMR
-sibujs gcomponent MyHeader   # generate a component
+sibujs g component MyHeader   # generate a component
 sibujs lint         # check for common mistakes
 sibujs analyze      # review bundle impact
 sibujs build        # production build
@@ -170,6 +170,10 @@ sibujs preview      # test the production build locally
 ## Requirements
 
 - Node.js >= 18.0.0
+
+## Author
+
+[hexplus](https://github.com/hexplus)
 
 ## License
 

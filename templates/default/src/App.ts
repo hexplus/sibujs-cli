@@ -71,7 +71,7 @@ function TodoDemo() {
           each(
             todos,
             (todo) => {
-              const isDone = () => todos().find((t) => t.id === todo.id)?.done ?? todo.done;
+              const isDone = () => todos().find((t) => t.id === todo().id)?.done ?? todo().done;
               return div({
                 class: "todo-item",
                 nodes: [
@@ -79,11 +79,11 @@ function TodoDemo() {
                     type: "checkbox",
                     checked: isDone,
                     class: "checkbox",
-                    on: { change: () => toggleTodo(todo.id) },
+                    on: { change: () => toggleTodo(todo().id) },
                   }),
                   span({
                     class: () => isDone() ? "todo-text todo-done" : "todo-text",
-                    nodes: todo.text,
+                    nodes: () => todo().text,
                   }),
                 ],
               });

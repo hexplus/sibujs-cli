@@ -87,19 +87,19 @@ function TodoDemo() {
               each(
                 todos,
                 (todo) => {
-                  const isDone = () => todos().find((t) => t.id === todo.id)?.done ?? todo.done;
+                  const isDone = () => todos().find((t) => t.id === todo().id)?.done ?? todo().done;
                   return div({
                     class: "flex items-center gap-3 py-1",
                     nodes: [
                       Checkbox({
-                        defaultChecked: todo.done,
-                        onCheckedChange: () => toggleTodo(todo.id),
+                        defaultChecked: todo().done,
+                        onCheckedChange: () => toggleTodo(todo().id),
                       }),
                       span({
                         class: () => isDone()
                           ? "flex-1 text-sm line-through text-muted-foreground"
                           : "flex-1 text-sm",
-                        nodes: todo.text,
+                        nodes: () => todo().text,
                       }),
                     ],
                   });

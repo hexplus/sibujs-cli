@@ -61,7 +61,7 @@ cli.command("analyze", "Analyze Sibu bundle size impact").action(async () => {
 });
 
 cli.help();
-cli.version("1.1.0");
+cli.version("1.2.0");
 
 cli.on("command:*", () => {
   console.error(pc.red(`Unknown command: ${cli.args.join(" ")}`));

@@ -121,12 +121,35 @@ const RULES: LintRule[] = [
     check(content) {
       const results: Array<{ index: number; message: string }> = [];
       const pattern = /\.(innerHTML|outerHTML)\s*=/g;
-      let match: RegExpExecArray | null;
-      while ((match = pattern.exec(content)) !== null) {
-        results.push({
-          index: match.index,
-          message: "Avoid direct DOM mutation — use reactive bindings instead",
-        });
+      const lines = content.split("\n");
+      let offset = 0;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        // Support inline disable comments
+        if (trimmed.includes("sibujs-disable") && !trimmed.includes("sibujs-disable-next-line")) {
+          offset += line.length + 1;
+          continue;
+        }
+        if (i > 0) {
+          const prevTrimmed = lines[i - 1].trim();
+          if (
+            prevTrimmed.includes("sibujs-disable-next-line") &&
+            (prevTrimmed.includes("no-direct-dom-mutation") || !prevTrimmed.includes(" ", prevTrimmed.indexOf("sibujs-disable-next-line") + 25))
+          ) {
+            offset += line.length + 1;
+            continue;
+          }
+        }
+        pattern.lastIndex = 0;
+        let match: RegExpExecArray | null;
+        while ((match = pattern.exec(line)) !== null) {
+          results.push({
+            index: offset + match.index,
+            message: "Avoid direct DOM mutation — use reactive bindings instead",
+          });
+        }
+        offset += line.length + 1;
       }
       return results;
     },

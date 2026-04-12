@@ -58,10 +58,14 @@ body {
 .btn:hover { background: #e5e7eb; }
 .btn-primary { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
 .btn-primary:hover { background: #4338ca; }
+.btn-active { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
+.btn-active:hover { background: var(--primary); filter: brightness(1.1); }
 .btn-ghost { background: transparent; border: none; color: var(--primary); }
 .btn-ghost:hover { background: #eef2ff; }
-.btn-link { background: transparent; border: none; cursor: pointer; font-size: 14px; padding: 6px 12px; border-radius: 8px; }
+.btn-link { background: transparent; border: none; cursor: pointer; font-size: 14px; padding: 6px 12px; border-radius: 8px; color: var(--text); }
 .btn-link:hover { background: #f3f4f6; }
+.btn-link-active { background: var(--primary); color: var(--primary-fg); }
+.btn-link-active:hover { background: var(--primary); filter: brightness(1.1); }
 .btn-danger { color: var(--danger); }
 .ml-auto { margin-left: auto; }
 
@@ -111,11 +115,11 @@ const BINARY_EXTENSIONS = new Set([
   ".gz",
 ]);
 
-function isValidPackageName(name: string): boolean {
+export function isValidPackageName(name: string): boolean {
   return /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/.test(name);
 }
 
-function toValidPackageName(name: string): string {
+export function toValidPackageName(name: string): string {
   return name
     .trim()
     .toLowerCase()
@@ -125,7 +129,7 @@ function toValidPackageName(name: string): string {
     .replace(/-+/g, "-");
 }
 
-function detectPackageManager(): string {
+export function detectPackageManager(): string {
   const ua = process.env.npm_config_user_agent ?? "";
   if (ua.startsWith("pnpm")) return "pnpm";
   if (ua.startsWith("bun")) return "bun";
@@ -239,7 +243,7 @@ export async function create(name?: string, options: CreateOptions = {}) {
 
   const replacements: Record<string, string> = {
     NAME: pkgName,
-    SIBUJS_UI_DEP: useUi ? `,\n    "sibujs-ui": "^1.0.11"` : "",
+    SIBUJS_UI_DEP: useUi ? `,\n    "sibujs-ui": "^1.1.0"` : "",
     TAILWIND_DEPS: useTailwind ? `,\n    "@tailwindcss/vite": "^4.2.1",\n    "tailwindcss": "^4.2.1"` : "",
     TAILWIND_IMPORT: useTailwind ? `import tailwindcss from "@tailwindcss/vite";\n` : "",
     TAILWIND_PLUGIN: useTailwind ? "\n    tailwindcss(),\n  " : "",
@@ -252,7 +256,7 @@ export async function create(name?: string, options: CreateOptions = {}) {
             ...(theme !== "default" ? [`@import "sibujs-ui/themes/${theme}.css";`] : []),
             `@source "../node_modules/sibujs-ui/dist";`,
           ].join("\n")
-        : `@import "tailwindcss";`
+        : `@import "tailwindcss";\n\n${BASE_CSS}`
       : BASE_CSS,
   };
 

@@ -12,9 +12,7 @@ const COMPONENT_TEMPLATE = (name: string) =>
   `import { div } from "sibujs";
 
 export function ${name}() {
-  return div({
-    nodes: ["${name} works!"],
-  });
+  return div("${name} works!");
 }
 `;
 

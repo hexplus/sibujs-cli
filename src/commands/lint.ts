@@ -28,7 +28,7 @@ const HOOK_NAMES = [
   "writable",
 ];
 
-const RULES: LintRule[] = [
+export const RULES: LintRule[] = [
   {
     name: "no-hooks-in-conditionals",
     check(content) {
@@ -135,7 +135,8 @@ const RULES: LintRule[] = [
           const prevTrimmed = lines[i - 1].trim();
           if (
             prevTrimmed.includes("sibujs-disable-next-line") &&
-            (prevTrimmed.includes("no-direct-dom-mutation") || !prevTrimmed.includes(" ", prevTrimmed.indexOf("sibujs-disable-next-line") + 25))
+            (prevTrimmed.includes("no-direct-dom-mutation") ||
+              !prevTrimmed.includes(" ", prevTrimmed.indexOf("sibujs-disable-next-line") + 25))
           ) {
             offset += line.length + 1;
             continue;
@@ -203,7 +204,7 @@ const RULES: LintRule[] = [
   },
 ];
 
-function lintFile(filePath: string): LintViolation[] {
+export function lintFile(filePath: string): LintViolation[] {
   const content = fs.readFileSync(filePath, "utf-8");
   const violations: LintViolation[] = [];
 

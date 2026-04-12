@@ -1,28 +1,18 @@
-import {
-  div, h1, h3, p, button, input, span,
-  header, footer,
-  signal, derived, each, array,
-} from "sibujs";
+import { array, button, derived, div, each, footer, h1, h3, header, input, p, signal, span } from "sibujs";
 
 function CounterDemo() {
   const [count, setCount] = signal(0);
 
-  return div({
-    class: "card",
-    nodes: [
-      h3({ class: "heading", nodes: "Counter" }),
-      p({ class: "desc", nodes: "Basic signal reactivity." }),
-      div({
-        class: "row-lg",
-        nodes: [
-          button({ class: "btn", nodes: "−", on: { click: () => setCount(count() - 1) } }),
-          span({ class: "count", nodes: () => String(count()) }),
-          button({ class: "btn", nodes: "+", on: { click: () => setCount(count() + 1) } }),
-          button({ class: "btn-ghost", nodes: "Reset", on: { click: () => setCount(0) } }),
-        ],
-      }),
-    ],
-  });
+  return div("card", [
+    h3("heading", "Counter"),
+    p("desc", "Basic signal reactivity."),
+    div("row-lg", [
+      button({ class: "btn", on: { click: () => setCount(count() - 1) } }, "−"),
+      span("count", () => String(count())),
+      button({ class: "btn", on: { click: () => setCount(count() + 1) } }, "+"),
+      button({ class: "btn-ghost", on: { click: () => setCount(0) } }, "Reset"),
+    ]),
+  ]);
 }
 
 function TodoDemo() {
@@ -43,91 +33,61 @@ function TodoDemo() {
   }
 
   function toggleTodo(id: number) {
-    setTodos(todos().map((t) => t.id === id ? { ...t, done: !t.done } : t));
+    setTodos(todos().map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
   }
 
-  return div({
-    class: "card",
-    nodes: [
-      h3({ class: "heading", nodes: "Todo List" }),
-      p({ class: "desc", nodes: "Reactive list with array + each." }),
-      div({
-        class: "row",
-        nodes: [
-          input({
-            class: "input",
-            value: () => newText(),
-            on: {
-              input: (e) => setNewText((e.target as HTMLInputElement).value),
-              keydown: (e) => { if ((e as KeyboardEvent).key === "Enter") addTodo(); },
-            },
-            placeholder: "Add a todo...",
-          }),
-          button({ class: "btn btn-primary", nodes: "Add", on: { click: addTodo } }),
-        ],
+  return div("card", [
+    h3("heading", "Todo List"),
+    p("desc", "Reactive list with array + each."),
+    div("row", [
+      input({
+        class: "input",
+        value: () => newText(),
+        placeholder: "Add a todo...",
+        on: {
+          input: (e) => setNewText((e.target as HTMLInputElement).value),
+          keydown: (e) => {
+            if ((e as KeyboardEvent).key === "Enter") addTodo();
+          },
+        },
       }),
-      div({
-        nodes: [
-          each(
-            todos,
-            (todo) => {
-              const isDone = () => todos().find((t) => t.id === todo().id)?.done ?? todo().done;
-              return div({
-                class: "todo-item",
-                nodes: [
-                  input({
-                    type: "checkbox",
-                    checked: isDone,
-                    class: "checkbox",
-                    on: { change: () => toggleTodo(todo().id) },
-                  }),
-                  span({
-                    class: () => isDone() ? "todo-text todo-done" : "todo-text",
-                    nodes: () => todo().text,
-                  }),
-                ],
-              });
-            },
-            { key: (t) => t.id },
-          ),
-        ],
-      }),
-      p({
-        class: "muted",
-        nodes: () => `${remaining()} item${remaining() === 1 ? "" : "s"} remaining`,
-      }),
-    ],
-  });
+      button({ class: "btn btn-primary", on: { click: addTodo } }, "Add"),
+    ]),
+    div(
+      each(
+        todos,
+        (todo) => {
+          const isDone = () => todos().find((t) => t.id === todo().id)?.done ?? todo().done;
+          return div("todo-item", [
+            input({
+              type: "checkbox",
+              checked: isDone,
+              class: "checkbox",
+              on: { change: () => toggleTodo(todo().id) },
+            }),
+            span({ class: () => (isDone() ? "todo-text todo-done" : "todo-text") }, () => todo().text),
+          ]);
+        },
+        { key: (t) => t.id },
+      ),
+    ),
+    p("muted", () => `${remaining()} item${remaining() === 1 ? "" : "s"} remaining`),
+  ]);
 }
 
 export function App() {
-  return div({
-    class: "page",
-    nodes: [
-      header({
-        class: "header",
-        nodes: [
-          div({
-            class: "container",
-            nodes: [
-              h1({ class: "title", nodes: "{{NAME}}" }),
-              p({ class: "subtitle", nodes: "Welcome to your new Sibu app." }),
-            ],
-          }),
-        ],
-      }),
+  return div("page", [
+    header("header", [
+      div("container", [
+        h1("title", "{{NAME}}"),
+        p("subtitle", "Welcome to your new Sibu app."),
+      ]),
+    ]),
 
-      div({ class: "container", nodes: [CounterDemo(), TodoDemo()] }),
+    div("container", [CounterDemo(), TodoDemo()]),
 
-      footer({
-        class: "footer",
-        nodes: [
-          div({
-            class: "container",
-            nodes: "Built with Sibu — fine-grained reactivity, no virtual DOM.",
-          }),
-        ],
-      }),
-    ],
-  });
+    footer("footer", [
+      div("container", "Built with Sibu — fine-grained reactivity, no virtual DOM."),
+    ]),
+  ]);
 }

@@ -1,39 +1,40 @@
-import { div, h1, h2, p, button } from "sibujs";
-import { Outlet, navigate } from "sibujs/plugins";
+import { button, div, h1, h2, p } from "sibujs";
+import { navigate, Outlet, route } from "sibujs/plugins";
+
+function TabButton(path: string, label: string) {
+  const isActive = () => route().path === path;
+  return button(
+    {
+      class: () => (isActive() ? "btn btn-active" : "btn"),
+      on: { click: () => navigate(path) },
+    },
+    label,
+  );
+}
 
 export function Dashboard() {
-  return div({
-    nodes: [
-      h1({ class: "page-title", nodes: "Dashboard" }),
+  return div([
+    h1("page-title", "Dashboard"),
 
-      div({
-        class: "row",
-        style: { marginBottom: "24px" },
-        nodes: [
-          button({ class: "btn", nodes: "Overview", on: { click: () => navigate("/dashboard") } }),
-          button({ class: "btn", nodes: "Settings", on: { click: () => navigate("/dashboard/settings") } }),
-        ],
-      }),
+    div({ class: "row", style: { marginBottom: "24px" } }, [
+      TabButton("/dashboard", "Overview"),
+      TabButton("/dashboard/settings", "Settings"),
+    ]),
 
-      div({ class: "panel", nodes: [Outlet()] }),
-    ],
-  });
+    div("panel", [Outlet()]),
+  ]);
 }
 
 export function DashboardOverview() {
-  return div({
-    nodes: [
-      h2({ class: "section-title", nodes: "Overview" }),
-      p({ class: "page-text text-sm", nodes: "This is a nested route rendered inside the Dashboard layout via Outlet." }),
-    ],
-  });
+  return div([
+    h2("section-title", "Overview"),
+    p("page-text text-sm", "This is a nested route rendered inside the Dashboard layout via Outlet."),
+  ]);
 }
 
 export function DashboardSettings() {
-  return div({
-    nodes: [
-      h2({ class: "section-title", nodes: "Settings" }),
-      p({ class: "page-text text-sm", nodes: "Adjust your preferences here." }),
-    ],
-  });
+  return div([
+    h2("section-title", "Settings"),
+    p("page-text text-sm", "Adjust your preferences here."),
+  ]);
 }

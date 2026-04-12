@@ -1,44 +1,43 @@
 import { div, h1, h2, p } from "sibujs";
-import { Button, Card, CardHeader, CardTitle, CardDescription, CardContent } from "sibujs-ui";
-import { Outlet, navigate } from "sibujs/plugins";
+import { navigate, Outlet, route } from "sibujs/plugins";
+import { Button, Card, CardContent } from "sibujs-ui";
+
+function TabButton(path: string, label: string) {
+  const isActive = () => route().path === path;
+  return Button(
+    {
+      variant: "outline",
+      size: "sm",
+      class: () => (isActive() ? "bg-primary text-primary-foreground hover:bg-primary/90 border-primary" : ""),
+      on: { click: () => navigate(path) },
+    },
+    label,
+  );
+}
 
 export function Dashboard() {
-  return div({
-    class: "space-y-6",
-    nodes: [
-      h1({ class: "text-3xl font-bold tracking-tight", nodes: "Dashboard" }),
+  return div("space-y-6", [
+    h1("text-3xl font-bold tracking-tight", "Dashboard"),
 
-      div({
-        class: "flex gap-2",
-        nodes: [
-          Button({ variant: "outline", size: "sm", nodes: "Overview", on: { click: () => navigate("/dashboard") } }),
-          Button({ variant: "outline", size: "sm", nodes: "Settings", on: { click: () => navigate("/dashboard/settings") } }),
-        ],
-      }),
+    div("flex gap-2", [
+      TabButton("/dashboard", "Overview"),
+      TabButton("/dashboard/settings", "Settings"),
+    ]),
 
-      Card({
-        nodes: [
-          CardContent({ class: "pt-6", nodes: [Outlet()] }),
-        ],
-      }),
-    ],
-  });
+    Card([CardContent({ class: "pt-6" }, [Outlet()])]),
+  ]);
 }
 
 export function DashboardOverview() {
-  return div({
-    nodes: [
-      h2({ class: "text-xl font-semibold mb-2", nodes: "Overview" }),
-      p({ class: "text-sm text-muted-foreground", nodes: "This is a nested route rendered inside the Dashboard layout via Outlet." }),
-    ],
-  });
+  return div([
+    h2("text-xl font-semibold mb-2", "Overview"),
+    p("text-sm text-muted-foreground", "This is a nested route rendered inside the Dashboard layout via Outlet."),
+  ]);
 }
 
 export function DashboardSettings() {
-  return div({
-    nodes: [
-      h2({ class: "text-xl font-semibold mb-2", nodes: "Settings" }),
-      p({ class: "text-sm text-muted-foreground", nodes: "Adjust your preferences here." }),
-    ],
-  });
+  return div([
+    h2("text-xl font-semibold mb-2", "Settings"),
+    p("text-sm text-muted-foreground", "Adjust your preferences here."),
+  ]);
 }

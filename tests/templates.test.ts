@@ -59,8 +59,8 @@ describe("templates use shorthand canonical syntax", () => {
 describe("templates dependency versions", () => {
   const pkgTpl = fs.readFileSync(path.join(TEMPLATES_ROOT, "default", "package.json.tpl"), "utf-8");
 
-  it("sibujs dependency is pinned to ^2.0.0", () => {
-    expect(pkgTpl).toMatch(/"sibujs":\s*"\^2\.0\.0"/);
+  it("sibujs dependency is pinned to ^3.0.0", () => {
+    expect(pkgTpl).toMatch(/"sibujs":\s*"\^3\.0\.0"/);
   });
 
   it("sibujs-ui placeholder resolves to ^1.3.0", () => {

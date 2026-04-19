@@ -6,6 +6,18 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.2] — 2026-04-19
+
+### Fixed — generated projects install on sibujs 3.x
+
+`sibujs create` was pinning `sibujs ^2.0.0` in the generated `package.json`, which is incompatible with the ecosystem after sibujs 3.0.0 shipped. Specifically, `sibujs-ui ^1.3.2` now peers on `sibujs ^3.0.0`, so `sibujs create --ui` would fail peer resolution on `npm install`.
+
+Template `templates/default/package.json.tpl` now pins `sibujs ^3.0.0`. New projects scaffold cleanly with the current reactivity core and ErrorBoundary positional-children API.
+
+No changes to the CLI's own commands, flags, generated source, or lint rules.
+
+---
+
 ## [1.3.1] — 2026-04-18
 
 ### Fixed — generated-project dependencies align with current sibujs / sibujs-ui

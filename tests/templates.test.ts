@@ -59,17 +59,17 @@ describe("templates use shorthand canonical syntax", () => {
 describe("templates dependency versions", () => {
   const pkgTpl = fs.readFileSync(path.join(TEMPLATES_ROOT, "default", "package.json.tpl"), "utf-8");
 
-  it("sibujs dependency is pinned to ^1.5.0", () => {
-    expect(pkgTpl).toMatch(/"sibujs":\s*"\^1\.5\.0"/);
+  it("sibujs dependency is pinned to ^2.0.0", () => {
+    expect(pkgTpl).toMatch(/"sibujs":\s*"\^2\.0\.0"/);
   });
 
-  it("sibujs-ui placeholder resolves to ^1.1.0", () => {
+  it("sibujs-ui placeholder resolves to ^1.3.0", () => {
     // The value is interpolated from create.ts — check the source.
     const createSrc = fs.readFileSync(
       path.resolve(__dirname, "..", "src", "commands", "create.ts"),
       "utf-8",
     );
-    expect(createSrc).toMatch(/"sibujs-ui":\s*"\^1\.1\.0"/);
+    expect(createSrc).toMatch(/"sibujs-ui":\s*"\^1\.3\.0"/);
   });
 });
 

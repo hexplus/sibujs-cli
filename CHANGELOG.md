@@ -6,6 +6,20 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.3] — 2026-06-01
+
+### Changed — generated projects pin the latest sibujs / sibujs-ui
+
+`sibujs create` now scaffolds `package.json` with:
+
+- `sibujs ^3.2.0` (was `^3.0.0`). 3.2.0 is a security + bug-fix release (RouterLink/SSR sanitization, htm-parser fixes, disposal-correctness, the request-scoped SSR query cache), so flooring at `^3.2.0` ensures new projects can't resolve an older, vulnerable 3.0.x.
+- `sibujs-ui ^1.4.1` (was `^1.3.0`), which fixes the portal-disposal leak in dropdown-menu / menubar / tooltip.
+- `sibujs-cli ^1.3.3` (was `^1.3.0`) in devDependencies, matching this release.
+
+Reviewed every template against the new versions: the `each()` usages correctly read the item/index **getters** (`todo()`, `key: (t) => t.id`), children are passed positionally, events use `on: { … }`, the router templates use current `sibujs/plugins` exports (`createRouter`, `route`, `navigate`, `Route`, `Outlet`), and the `sibujs-ui` theme imports (`sibujs-ui/themes/*.css`) still resolve. The `generate` command emits current-API code (`div("…")`). No CLI command, flag, or generated-source changes.
+
+---
+
 ## [1.3.2] — 2026-04-19
 
 ### Fixed — generated projects install on sibujs 3.x

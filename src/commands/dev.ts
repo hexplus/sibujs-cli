@@ -1,38 +1,24 @@
-import { spawn } from "node:child_process";
 import pc from "picocolors";
+import { buildServerArgs, type RunViteOptions, runVite } from "../lib/vite-runner.js";
 
 export interface DevOptions {
-  port?: number;
+  port?: number | string;
   /** String when `--host <addr>` is used, true when bare `--host` is used */
   host?: string | boolean;
 }
 
-export function dev(options: DevOptions) {
-  const args = ["vite"];
-  if (options.port) args.push("--port", String(options.port));
-  if (options.host === true) {
-    args.push("--host");
-  } else if (options.host) {
-    args.push("--host", options.host);
-  }
+export function dev(options: DevOptions, runnerOptions: RunViteOptions = {}) {
+  const args = buildServerArgs(options, (value) => {
+    console.error(`${pc.red("✖")} Invalid --port ${pc.yellow(JSON.stringify(value))}.`);
+    console.error(`  Expected a whole number between 1 and 65535.`);
+    process.exit(1);
+  });
 
   console.log(`${pc.cyan("sibujs")} ${pc.dim("starting dev server...")}\n`);
 
-  const child = spawn("npx", args, {
-    stdio: "inherit",
-    cwd: process.cwd(),
-    shell: true,
-  });
-
-  // Forward signals to the child process
-  const signals: NodeJS.Signals[] = ["SIGINT", "SIGTERM"];
-  for (const signal of signals) {
-    process.on(signal, () => {
-      child.kill(signal);
-    });
-  }
-
-  child.on("close", (code) => {
-    process.exit(code ?? 0);
+  return runVite(args, {
+    forwardSignals: true,
+    onClose: (code) => process.exit(code),
+    ...runnerOptions,
   });
 }

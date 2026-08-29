@@ -83,6 +83,39 @@ Creates a component file in `src/components/` (if the directory exists) or `src/
 | ------------- | ----------------------------------- |
 | `component` | Creates a SibuJS component function |
 
+#### Component name rules
+
+The name becomes both a filename and a `function` declaration, so it is
+validated rather than coerced. A name is accepted when it is one or more
+alphanumeric words separated by `-` or `_`, starting with a letter:
+
+```bash
+sibujs g component button        # -> src/Button.ts        export function Button()
+sibujs g component my-card       # -> src/MyCard.ts        export function MyCard()
+sibujs g component user_profile  # -> src/UserProfile.ts   export function UserProfile()
+```
+
+Anything else is refused with a nonzero exit code, and nothing is written:
+
+| Rejected                     | Example                        |
+| ---------------------------- | ------------------------------ |
+| path separators              | `x/y`, `x\y`                   |
+| traversal segments           | `../Outside`, `..`, `./x`      |
+| absolute or drive paths      | `/abs/path`, `C:\outside`      |
+| whitespace                   | `my button`                    |
+| leading digits               | `123-widget`                   |
+| dots                         | `component.name`               |
+| quotes and template markers  | `component"`, ``component` ``  |
+| control and NUL characters   | `comp\u0000onent`              |
+| empty name                   | `""`                           |
+
+The resolved path is additionally checked to be a direct child of the output
+directory, on both POSIX and Windows path semantics, before any write happens.
+An existing component is never overwritten.
+
+Reserved words are accepted because normalization capitalizes them into legal
+identifiers: `class` becomes `Class`, and `export function Class()` is valid.
+
 ### `sibujs dev`
 
 Start the Vite development server with hot module replacement.
@@ -126,6 +159,25 @@ sibujs preview --port 5000
 | `--port <port>`    | Port number  |
 | `--host [address]` | Host address |
 
+### Vite resolution and port validation
+
+`dev`, `build` and `preview` run **the Vite installed in your project**. It is
+resolved as a package, so pnpm, Yarn and hoisted monorepo layouts all work, and
+it is executed directly with Node — never through a shell, and never through
+`npx`, which would silently download Vite from the registry on a project that
+does not have it. If Vite is missing, the command fails with a nonzero exit code
+and tells you to install it.
+
+Because no shell is involved, `--host` values are passed to Vite verbatim as a
+single argument. Shell metacharacters in a host (`;`, `&`, `|`, `$(...)`,
+backticks, redirection, spaces) are inert text, not commands. Any valid IPv4,
+IPv6, hostname or wildcard value is accepted unchanged.
+
+`--port` is validated before anything is spawned: it must be a plain integer
+from 1 to 65535. `0`, negatives, decimals, values above 65535, empty values and
+anything with extra characters are rejected with a clear message and a nonzero
+exit code.
+
 ### `sibujs lint [...files]`
 
 Lint source files for SibuJS best practices. Scans `src/` by default, or specify files explicitly.
@@ -139,9 +191,45 @@ Built-in rules:
 
 | Rule                         | Description                                                                                                    |
 | ---------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `no-hooks-in-conditionals` | Prevents calling reactive primitives (`signal`, `effect`, `derived`, etc.) inside `if`/`else` blocks |
-| `no-direct-dom-mutation`   | Warns against `.innerHTML =` mutations — use reactive bindings instead                                      |
+| `no-hooks-in-conditionals` | Prevents calling reactive primitives (`signal`, `effect`, `derived`, etc.) inside `if`/`else` branches, ternaries and `&&`/`||`/`??` short-circuits |
+| `no-direct-dom-mutation`   | Warns against `.innerHTML` / `.outerHTML` assignment — use reactive bindings instead                        |
 | `each-requires-key`        | Ensures `each()` calls include a `key` option for efficient list updates                                   |
+
+#### Exit behavior
+
+**Violations fail the command with exit code 1.** Generated projects wire
+`sibujs lint` into their `lint` script, and a lint step that always exits 0
+gives CI false confidence.
+
+```bash
+sibujs lint              # exits 1 if anything is reported
+sibujs lint --warn-only  # reports the same findings, exits 0
+```
+
+#### How the rules read your code
+
+The linter parses with the TypeScript compiler rather than scanning text, so
+comments, strings, template literals, regular expressions and property names are
+never mistaken for real code. TypeScript is resolved at runtime from the project
+being linted (every project `sibujs create` generates has it) and is declared as
+an optional peer dependency; if it cannot be found, `sibujs lint` says so and
+exits nonzero rather than guessing.
+
+`each-requires-key` accepts a key only when it can establish one statically —
+an object literal with a `key` property, either `{ key: fn }` or `{ key }`.
+A missing third argument, `undefined`, an object without `key`, a spread, or an
+options variable whose contents are unknown are all reported. The rule never
+assumes an opaque value supplies a key, because a missing key degrades list
+reconciliation silently at runtime. Suppress a known-good dynamic case with a
+comment:
+
+```ts
+// sibujs-disable-next-line each-requires-key
+each(items, renderItem, optionsBuiltElsewhere);
+```
+
+Both `// sibujs-disable` (same line) and `// sibujs-disable-next-line` are
+supported, optionally narrowed to a single rule by name.
 
 ### `sibujs analyze`
 

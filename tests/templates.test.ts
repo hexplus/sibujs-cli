@@ -79,6 +79,33 @@ describe("templates dependency versions", () => {
     expect(JSON.parse(pkgTpl.replace(/\{\{[A-Z_]+\}\}/g, "")).engines.node).toBe(">=22.12.0");
   });
 
+  it("reports the same version from --version as package.json declares", () => {
+    // These drifted apart before: package.json said 1.3.3 while the CLI printed
+    // 1.3.0, so `sibujs --version` misidentified the tool.
+    const own = JSON.parse(
+      fs.readFileSync(path.resolve(__dirname, "..", "package.json"), "utf-8"),
+    ).version;
+    const indexSrc = fs.readFileSync(path.resolve(__dirname, "..", "src", "index.ts"), "utf-8");
+    expect(indexSrc).toContain(`cli.version("${own}")`);
+  });
+
+  it("keeps the tsup target consistent with the declared engines floor", () => {
+    const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, "..", "package.json"), "utf-8"));
+    const tsup = fs.readFileSync(path.resolve(__dirname, "..", "tsup.config.ts"), "utf-8");
+    const engineMajor = Number(/>=\s*(\d+)/.exec(pkg.engines.node)?.[1]);
+    const targetMajor = Number(/target:\s*"node(\d+)"/.exec(tsup)?.[1]);
+    expect(engineMajor).toBeGreaterThan(0);
+    expect(targetMajor).toBe(engineMajor);
+  });
+
+  it("keeps production dependencies minimal", () => {
+    const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, "..", "package.json"), "utf-8"));
+    // The linter parses with TypeScript, which is resolved at runtime from the
+    // project being linted rather than bundled here.
+    expect(Object.keys(pkg.dependencies).sort()).toEqual(["cac", "picocolors", "prompts"]);
+    expect(pkg.peerDependenciesMeta?.typescript?.optional).toBe(true);
+  });
+
   it("pins sibujs-cli to this package's own version", () => {
     const own = JSON.parse(
       fs.readFileSync(path.resolve(__dirname, "..", "package.json"), "utf-8"),

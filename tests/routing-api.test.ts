@@ -3,12 +3,12 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 // Verifies that the `routing` template uses only APIs that exist in
-// sibujs v1.5.0's router.
+// the router shipped by the sibujs version the templates depend on (4.x).
 
 const ROUTER_TEMPLATE = path.resolve(__dirname, "..", "templates", "routing", "src", "router.ts");
 const APP_TEMPLATE = path.resolve(__dirname, "..", "templates", "routing", "src", "App.ts");
 
-describe("routing template — v1.5.0 API compliance", () => {
+describe("routing template — sibujs 4.x router API compliance", () => {
   it("router.ts imports only valid sibujs/plugins symbols", () => {
     const content = fs.readFileSync(ROUTER_TEMPLATE, "utf-8");
 
@@ -26,7 +26,7 @@ describe("routing template — v1.5.0 API compliance", () => {
       for (const n of names) imported.add(n);
     }
 
-    // Valid public exports from sibujs v1.5 plugins.ts
+    // Valid public exports from sibujs 4.x plugins entry point
     const validExports = new Set([
       "createRouter",
       "setRoutes",

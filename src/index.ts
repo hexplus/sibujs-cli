@@ -28,7 +28,7 @@ cli
   .command("dev", "Start Vite dev server")
   .option("--port <port>", "Port number")
   .option("--host [host]", "Host address")
-  .action(async (options: { port?: number; host?: string | boolean }) => {
+  .action(async (options: { port?: number | string; host?: string | boolean }) => {
     const { dev } = await import("./commands/dev.js");
     dev(options);
   });
@@ -45,15 +45,18 @@ cli
   .command("preview", "Preview production build locally")
   .option("--port <port>", "Port number")
   .option("--host [host]", "Host address")
-  .action(async (options: { port?: number; host?: string | boolean }) => {
+  .action(async (options: { port?: number | string; host?: string | boolean }) => {
     const { preview } = await import("./commands/preview.js");
     preview(options);
   });
 
-cli.command("lint [...files]", "Lint source files for Sibu best practices").action(async (files: string[]) => {
-  const { lint } = await import("./commands/lint.js");
-  lint(files);
-});
+cli
+  .command("lint [...files]", "Lint source files for Sibu best practices")
+  .option("--warn-only", "Report findings but exit 0 (default: violations fail the command)")
+  .action(async (files: string[], options?: { warnOnly?: boolean }) => {
+    const { lint } = await import("./commands/lint.js");
+    lint(files, { warnOnly: options?.warnOnly });
+  });
 
 cli.command("analyze", "Analyze Sibu bundle size impact").action(async () => {
   const { analyze } = await import("./commands/analyze.js");
@@ -69,4 +72,13 @@ cli.on("command:*", () => {
   process.exit(1);
 });
 
-cli.parse();
+try {
+  cli.parse();
+} catch (error) {
+  // An argument-parsing failure is a user error, not a crash. `--port -1`, for
+  // example, is read as an unknown `-1` flag before any command runs; printing
+  // a stack trace for that helps nobody.
+  console.error(`${pc.red("✖")} ${error instanceof Error ? error.message : String(error)}`);
+  console.error(`  ${pc.dim("Run `sibujs --help` to see the available commands and options.")}`);
+  process.exit(1);
+}

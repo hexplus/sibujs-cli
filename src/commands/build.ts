@@ -1,28 +1,25 @@
-import { spawn } from "node:child_process";
 import pc from "picocolors";
+import { type RunViteOptions, runVite } from "../lib/vite-runner.js";
 
 export interface BuildOptions {
   ssr?: boolean;
 }
 
-export function build(options: BuildOptions) {
-  const args = ["vite", "build"];
+export function build(options: BuildOptions, runnerOptions: RunViteOptions = {}) {
+  const args = ["build"];
   if (options.ssr) args.push("--ssr");
 
   console.log(`${pc.cyan("sibujs")} ${pc.dim("building for production...")}\n`);
 
-  const child = spawn("npx", args, {
-    stdio: "inherit",
-    cwd: process.cwd(),
-    shell: true,
-  });
-
-  child.on("close", (code) => {
-    if (code === 0) {
-      console.log(`\n${pc.green("✔")} Build complete.`);
-    } else {
-      console.error(`\n${pc.red("✖")} Build failed.`);
-    }
-    process.exit(code ?? 1);
+  return runVite(args, {
+    onClose: (code) => {
+      if (code === 0) {
+        console.log(`\n${pc.green("✔")} Build complete.`);
+      } else {
+        console.error(`\n${pc.red("✖")} Build failed.`);
+      }
+      process.exit(code === 0 ? 0 : (code ?? 1));
+    },
+    ...runnerOptions,
   });
 }

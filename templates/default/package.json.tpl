@@ -11,11 +11,14 @@
     "analyze": "sibujs analyze"
   },
   "dependencies": {
-    "sibujs": "^3.2.0"{{SIBUJS_UI_DEP}}{{TAILWIND_DEPS}}
+    "sibujs": "^4.0.0"{{SIBUJS_UI_DEP}}{{TAILWIND_DEPS}}
   },
   "devDependencies": {
-    "sibujs-cli": "^1.3.3",
+    "sibujs-cli": "^1.4.0",
     "typescript": "~6.0.0",
     "vite": "^8.0.8"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

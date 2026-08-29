@@ -2,26 +2,42 @@ import fs from "node:fs";
 import path from "node:path";
 import pc from "picocolors";
 
-// Estimated module sizes in KB (approximate minified + gzipped)
+// Module sizes in KB, minified + gzipped.
+//
+// Measured against the published sibujs 4.0.0 / sibujs-ui 1.5.0 packages with
+// esbuild (bundle + minify, gzip -9). The entry-point rows are the MARGINAL
+// cost of adding that entry on top of the root package, not its standalone
+// size, because this command adds them to the per-import estimates below
+// rather than replacing them — publishing standalone sizes here would count
+// the shared reactivity core once per entry point.
+//
+// For reference, the standalone figures are roughly double the marginal ones
+// (sibujs/plugins is 28.1 KB alone but 18.7 KB on top of the root), and the
+// root package is 26.0 KB for `import * as`.
+//
+// Re-measure when the framework's dependency graph changes.
 const MODULE_SIZES: Record<string, number> = {
-  // Core packages (full bundle)
-  sibujs: 4.2,
-  "sibujs/extras": 6.8,
-  "sibujs/plugins": 3.5,
-  "sibujs/build": 2.1,
-  "sibujs/testing": 1.8,
-  "sibujs/data": 2.5,
-  "sibujs/browser": 1.5,
-  "sibujs/patterns": 2.0,
+  // Root package, whole surface.
+  sibujs: 26.0,
+  // Entry points: marginal cost over the root.
+  "sibujs/extras": 54.8,
+  "sibujs/plugins": 18.7,
+  // Build tooling runs in Node and never reaches the browser bundle.
+  "sibujs/build": 0,
+  "sibujs/testing": 9.7,
+  "sibujs/data": 5.8,
+  "sibujs/browser": 5.7,
+  "sibujs/patterns": 3.6,
   "sibujs/motion": 1.8,
-  "sibujs/ui": 1.5,
-  "sibujs/widgets": 2.0,
-  "sibujs/ssr": 1.5,
-  "sibujs/devtools": 1.0,
-  "sibujs/performance": 1.2,
-  "sibujs/ecosystem": 1.0,
-  // sibujs-ui
-  "sibujs-ui": 8.0,
+  "sibujs/ui": 8.7,
+  "sibujs/widgets": 6.4,
+  "sibujs/ssr": 10.5,
+  "sibujs/devtools": 6.6,
+  "sibujs/performance": 3.4,
+  "sibujs/ecosystem": 1.8,
+  // sibujs-ui, marginal over the root. Tree-shakes hard: a single component
+  // such as { Button } costs about 20 KB of this once its primitives land.
+  "sibujs-ui": 126.5,
   // Individual named imports (tree-shaken sizes)
   signal: 0.3,
   effect: 0.2,
@@ -72,7 +88,26 @@ const MODULE_SIZES: Record<string, number> = {
 
 // Tag factory names share a single factory function, so the actual
 // tree-shaken cost is the factory (~0.3 KB) + ~0 per additional tag.
-const TAG_FACTORY_BASE_SIZE = 0.3;
+// The reactivity core plus the rendering path (tag factories + mount) that any
+// SibuJS app pulls in on its first import. Measured at 25.9 KB min+gzip on
+// sibujs 4.0.0; the per-import rows below are marginal costs ON TOP of this,
+// which is why they are small. Without this base the total came out ~10x under
+// what a real bundle weighs.
+const BASE_RUNTIME_SIZE = 25.9;
+
+// Marginal cost of one named import from a sub-entry (sibujs/plugins, …) or
+// from sibujs-ui. Calibrated against four scaffolded apps built with Vite 8:
+//
+//   scaffold   non-root named imports   real js gzip   this model   delta
+//   plain                           0        26.9 KB      25.9 KB   -1.0
+//   router                          5        33.1 KB      32.7 KB   -0.4
+//   ui                              8        37.9 KB      36.7 KB   -1.2
+//   full                           13        43.3 KB      40.8 KB   -2.5
+//
+// It runs slightly under across all four, and it is a heuristic rather than a
+// bundler: a single import that drags in a large subsystem is understated, and
+// names shared between two sub-entries are counted once. Treat it as a floor.
+const PER_FEATURE_SIZE = 1.35;
 const TAG_NAMES = new Set([
   "div",
   "span",
@@ -147,6 +182,12 @@ export function analyze() {
   // Track named imports and module imports separately to avoid double-counting
   const namedImports = new Map<string, number>();
   const moduleImports = new Set<string>();
+  // Modules pulled in wholesale via `import * as X` / `import X`. Only these
+  // defeat tree-shaking, so only these are charged the whole entry-point cost.
+  const wholeModuleImports = new Set<string>();
+  // Named imports that came from a sub-entry or from sibujs-ui, i.e. the ones
+  // that are NOT already inside the base runtime.
+  const nonRootNamedImports = new Set<string>();
 
   for (const file of files) {
     const content = fs.readFileSync(file, "utf-8");
@@ -169,7 +210,9 @@ export function analyze() {
         return trimmed.split(/\s+as\s+/)[0].trim();
       });
       for (const name of names) {
-        if (name) namedImports.set(name, (namedImports.get(name) ?? 0) + 1);
+        if (!name) continue;
+        namedImports.set(name, (namedImports.get(name) ?? 0) + 1);
+        if (modulePath !== "sibujs") nonRootNamedImports.add(name);
       }
     }
 
@@ -180,6 +223,7 @@ export function analyze() {
       const fullMatch = content.slice(Math.max(0, match.index - 10), match.index + match[0].length);
       if (/import\s+type\s+/.test(fullMatch)) continue;
       moduleImports.add(match[1]);
+      wholeModuleImports.add(match[1]);
     }
   }
 
@@ -192,6 +236,13 @@ export function analyze() {
 
   // Calculate estimated tree-shaken size
   let totalSize = 0;
+
+  // Every SibuJS app pays the core + rendering base exactly once.
+  totalSize += BASE_RUNTIME_SIZE;
+
+  // Named imports from anything other than the root package cost extra on top
+  // of that base; root-package names are already inside it. Charged per row
+  // below so the printed rows and the total cannot drift apart.
   const hasTagImports = [...namedImports.keys()].some((n) => TAG_NAMES.has(n));
 
   // Show named imports sorted by usage
@@ -199,32 +250,42 @@ export function analyze() {
 
   console.log(`${pc.dim("Import")}${" ".repeat(24)}${pc.dim("Uses")}  ${pc.dim("Est. Size")}\n`);
 
+  console.log(
+    `  ${"core + rendering (base)".padEnd(30)} ${pc.dim(" —")}  ${pc.green("█".repeat(12))} ${pc.dim(`${BASE_RUNTIME_SIZE.toFixed(1)} KB`)}`,
+  );
+
   for (const [name, count] of sorted) {
     // Skip individual tag sizes — they're counted as the shared factory
     if (TAG_NAMES.has(name)) continue;
 
-    const size = MODULE_SIZES[name] ?? 0.1;
+    // Root-package names live inside the base above; only names from a
+    // sub-entry or sibujs-ui add bytes on top of it.
+    const isExtra = nonRootNamedImports.has(name);
+    const size = isExtra ? PER_FEATURE_SIZE : 0;
     totalSize += size;
     const paddedName = name.padEnd(30);
     const paddedCount = String(count).padStart(4);
-    const sizeStr = size >= 1 ? `${size.toFixed(1)} KB` : `${(size * 1024).toFixed(0)} B`;
+    const sizeStr = isExtra ? `${size.toFixed(2)} KB` : pc.dim("in base");
     const bar = pc.green("█".repeat(Math.max(1, Math.ceil(size * 3))));
-    console.log(`  ${paddedName} ${paddedCount}  ${bar} ${pc.dim(sizeStr)}`);
+    console.log(`  ${paddedName} ${paddedCount}  ${isExtra ? bar : " "} ${pc.dim(sizeStr)}`);
   }
 
   // Add tag factory base cost if any tags are used
   if (hasTagImports) {
     const tagNames = [...namedImports.keys()].filter((n) => TAG_NAMES.has(n));
     const tagCount = tagNames.reduce((sum, n) => sum + (namedImports.get(n) ?? 0), 0);
-    totalSize += TAG_FACTORY_BASE_SIZE;
     const paddedName = `tag factories (${tagNames.length} tags)`.padEnd(30);
     const paddedCount = String(tagCount).padStart(4);
-    const bar = pc.green("█");
-    console.log(`  ${paddedName} ${paddedCount}  ${bar} ${pc.dim(`${(TAG_FACTORY_BASE_SIZE * 1024).toFixed(0)} B`)}`);
+    console.log(`  ${paddedName} ${paddedCount}   ${pc.dim("in base")}`);
   }
 
-  // Add sub-package imports (sibujs/extras, etc.) that aren't covered by named imports
-  for (const mod of moduleImports) {
+  // Add sub-package cost ONLY for modules imported wholesale (`import * as X`),
+  // which is the case that genuinely defeats tree-shaking. A module reached
+  // through named imports is already accounted for above, one name at a time —
+  // charging its whole entry-point size on top would count the same bytes
+  // twice, and for a big tree-shakeable package like sibujs-ui that overstates
+  // a real bundle several times over.
+  for (const mod of wholeModuleImports) {
     if (mod !== "sibujs" && MODULE_SIZES[mod]) {
       totalSize += MODULE_SIZES[mod];
       const paddedName = mod.padEnd(30);

@@ -168,7 +168,14 @@ sibujs preview      # test the production build locally
 
 ## Requirements
 
-- Node.js >= 18.0.0
+- Node.js >= 22.12.0
+
+  Scaffolded projects depend on `sibujs` 4.0, which needs >= 22.3.0 for its
+  SSR request isolation, and on Vite 8, which needs `^20.19.0 || >= 22.12.0`.
+  The intersection is 22.12.0, and that is what both this CLI and the generated
+  `package.json` declare. Below it, npm silently skips Vite's native bundler
+  binding and the first `build` fails with a "Cannot find native binding" error
+  that says nothing about the real cause.
 
 ## Author
 

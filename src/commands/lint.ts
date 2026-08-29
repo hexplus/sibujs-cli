@@ -122,38 +122,175 @@ function isDomSinkAssignment(ts: typeof TS, node: TS.Node): boolean {
 }
 
 /**
+ * Suppression directives.
+ *
+ * Grammar — the whole comment body, after stripping comment markers and
+ * trimming, must match:
+ *
+ *     <directive> [ <rule-name> ] [ "--" <reason> ]
+ *
+ *     <directive>  ::= "sibujs-disable" | "sibujs-disable-next-line"
+ *     <rule-name>  ::= "no-hooks-in-conditionals"
+ *                    | "no-direct-dom-mutation"
+ *                    | "each-requires-key"
+ *
+ * Matching is token-based, never substring-based, so `sibujs-disabled`,
+ * `not-sibujs-disable`, `sibujs-disable-next-lines` and
+ * `sibujs-disable-something-else` are ordinary prose and suppress nothing.
+ *
+ * A directive naming an unknown rule is invalid and suppresses nothing. That is
+ * the fail-safe direction: a typo must not silently switch off every rule.
+ *
+ * Anything after a `--` separator is a free-text reason and is ignored.
+ */
+type DirectiveKind = "disable" | "disable-next-line";
+
+interface ParsedDirective {
+  kind: DirectiveKind;
+  /** `null` means every rule. */
+  rules: RuleName[] | null;
+}
+
+const DIRECTIVE_KINDS: Record<string, DirectiveKind> = {
+  "sibujs-disable": "disable",
+  "sibujs-disable-next-line": "disable-next-line",
+};
+
+const KNOWN_RULES = new Set<string>(RULE_NAMES);
+
+/**
+ * Parse a comment body.
+ *
+ * @returns the directive, `"invalid"` when it opens with a directive keyword
+ * but does not match the grammar, or `null` when it is not a directive at all.
+ */
+export function parseDirective(body: string): ParsedDirective | "invalid" | null {
+  const tokens = body.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return null;
+
+  const kind = DIRECTIVE_KINDS[tokens[0]];
+  if (!kind) return null;
+
+  const rest = tokens.slice(1);
+  if (rest.length === 0) return { kind, rules: null };
+
+  // `sibujs-disable -- reason`
+  if (rest[0] === "--") return { kind, rules: null };
+
+  if (!KNOWN_RULES.has(rest[0])) return "invalid";
+
+  // `sibujs-disable <rule>` optionally followed by `-- reason`
+  if (rest.length > 1 && rest[1] !== "--") return "invalid";
+
+  return { kind, rules: [rest[0] as RuleName] };
+}
+
+/**
+ * The body of a comment, with its markers removed.
+ *
+ * A line comment contributes everything after its leading slashes.
+ *
+ * A block comment contributes its content only when, after the opening and
+ * closing markers and any per-line leading asterisks are stripped, exactly one
+ * non-empty line remains. That admits a one-line block directive and the boxed
+ * form spread over three lines, while a JSDoc description that merely mentions
+ * a directive alongside prose never becomes one.
+ *
+ * @returns the body, or `null` when the comment cannot carry a directive.
+ */
+function commentBody(text: string, isBlock: boolean): string | null {
+  if (!isBlock) return text.replace(/^\/\/+/, "");
+
+  const inner = text.replace(/^\/\*/, "").replace(/\*\/$/, "");
+  const lines = inner
+    .split(/\r\n|\r|\n/)
+    .map((line) => line.replace(/^\s*\*+/, "").trim())
+    .filter((line) => line.length > 0);
+
+  return lines.length === 1 ? lines[0] : null;
+}
+
+interface CommentInfo {
+  body: string;
+  isBlock: boolean;
+  /** Zero-based line on which the comment ends. */
+  endLine: number;
+}
+
+/**
+ * Every comment in the file, taken from parser trivia rather than raw text.
+ *
+ * Comments are trivia attached ahead of tokens, so walking the parsed tokens
+ * and reading the comment ranges at each boundary finds all of them — including
+ * a trailing comment at end of file, which is trivia of the EOF token. Because
+ * the positions come from the parser, a `/` that opens a regular expression or
+ * a `//` inside a string, template or JSX literal is never mistaken for a
+ * comment: those characters sit inside a token, not at a trivia boundary.
+ */
+function collectComments(ts: typeof TS, sourceFile: TS.SourceFile, text: string): CommentInfo[] {
+  const ranges = new Map<number, TS.CommentRange>();
+
+  const visit = (node: TS.Node): void => {
+    for (const range of ts.getLeadingCommentRanges(text, node.getFullStart()) ?? []) {
+      ranges.set(range.pos, range);
+    }
+    for (const range of ts.getTrailingCommentRanges(text, node.getEnd()) ?? []) {
+      ranges.set(range.pos, range);
+    }
+    for (const child of node.getChildren(sourceFile)) visit(child);
+  };
+  visit(sourceFile);
+
+  const comments: CommentInfo[] = [];
+  for (const range of [...ranges.values()].sort((a, b) => a.pos - b.pos)) {
+    const isBlock = range.kind === ts.SyntaxKind.MultiLineCommentTrivia;
+    const body = commentBody(text.slice(range.pos, range.end), isBlock);
+    if (body === null) continue;
+    comments.push({
+      body,
+      isBlock,
+      // `end` can sit just past a trailing newline; clamp to the last character
+      // so the reported line is the one the comment visibly ends on.
+      endLine: sourceFile.getLineAndCharacterOfPosition(Math.max(range.pos, range.end - 1)).line,
+    });
+  }
+  return comments;
+}
+
+/**
  * Which lines are suppressed, and for which rules.
  *
- * Preserves the existing comment syntax:
- *   `// sibujs-disable` on the offending line
- *   `// sibujs-disable-next-line` on the line above
- * Both accept an optional rule name to narrow the suppression to that rule.
+ * `sibujs-disable` suppresses the line the comment ends on;
+ * `sibujs-disable-next-line` suppresses the immediately following physical
+ * line. Blank lines are not skipped.
  */
-function collectDisabledLines(lines: string[]): Map<number, Set<string> | "all"> {
+function collectDisabledLines(
+  ts: typeof TS,
+  sourceFile: TS.SourceFile,
+  text: string,
+): Map<number, Set<string> | "all"> {
   const disabled = new Map<number, Set<string> | "all">();
 
-  const record = (lineNo: number, directive: string) => {
-    const named = RULE_NAMES.filter((r) => directive.includes(r));
-    if (named.length === 0) {
+  const record = (lineNo: number, rules: RuleName[] | null) => {
+    if (rules === null) {
       disabled.set(lineNo, "all");
       return;
     }
     const existing = disabled.get(lineNo);
     if (existing === "all") return;
     const set = existing ?? new Set<string>();
-    for (const r of named) set.add(r);
+    for (const rule of rules) set.add(rule);
     disabled.set(lineNo, set);
   };
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line.includes("sibujs-disable")) continue;
-    if (line.includes("sibujs-disable-next-line")) {
-      record(i + 1, line);
-    } else {
-      record(i, line);
-    }
+  for (const comment of collectComments(ts, sourceFile, text)) {
+    const directive = parseDirective(comment.body);
+    // `null` is ordinary prose; `"invalid"` is a malformed directive, which
+    // deliberately suppresses nothing.
+    if (directive === null || directive === "invalid") continue;
+    record(comment.endLine + (directive.kind === "disable-next-line" ? 1 : 0), directive.rules);
   }
+
   return disabled;
 }
 
@@ -247,7 +384,7 @@ function analyzeSource(ts: typeof TS, fileName: string, content: string): Analyz
 
   ts.forEachChild(sourceFile, visit);
 
-  const disabled = collectDisabledLines(content.split("\n"));
+  const disabled = collectDisabledLines(ts, sourceFile, content);
   const analyzed: AnalyzedHit[] = [];
   const seen = new Set<string>();
 

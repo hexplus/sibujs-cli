@@ -228,8 +228,71 @@ comment:
 each(items, renderItem, optionsBuiltElsewhere);
 ```
 
-Both `// sibujs-disable` (same line) and `// sibujs-disable-next-line` are
-supported, optionally narrowed to a single rule by name.
+#### Suppressing a finding
+
+Directives are read from **real comments only**. They are extracted from the
+parser's comment trivia, so text that merely looks like a directive inside a
+string, template literal, regular expression, JSX text or JSX attribute has no
+effect — including text that also contains `//` or `/* */`.
+
+```ts
+const note = "sibujs-disable";   // just a string; suppresses nothing
+const re = /sibujs-disable/;     // just a regex; suppresses nothing
+```
+
+The grammar is:
+
+```text
+<directive> [ <rule-name> ] [ "--" <reason> ]
+
+<directive> ::= sibujs-disable | sibujs-disable-next-line
+<rule-name> ::= no-hooks-in-conditionals
+              | no-direct-dom-mutation
+              | each-requires-key
+```
+
+```ts
+element.innerHTML = html; // sibujs-disable
+element.innerHTML = html; // sibujs-disable no-direct-dom-mutation
+
+// sibujs-disable-next-line
+element.innerHTML = html;
+
+// sibujs-disable-next-line no-direct-dom-mutation -- markup is trusted here
+element.innerHTML = html;
+```
+
+| Behavior | Rule |
+| --- | --- |
+| `sibujs-disable` | suppresses findings on the line the comment **ends** on, and only that line |
+| `sibujs-disable-next-line` | suppresses findings on the **immediately following** physical line; blank lines are not skipped |
+| a named rule | suppresses only that rule, never the others |
+| no named rule | suppresses every rule on the targeted line |
+| `--` | everything after it is a free-text reason and is ignored |
+
+Matching is token-based, not substring-based. None of these is a directive:
+`not-sibujs-disable`, `sibujs-disabled`, `sibujs-disable-something-else`,
+`sibujs-disable-next-lines`.
+
+**An unknown rule name makes the directive invalid, and it suppresses nothing** —
+a typo must never silently switch off every rule.
+
+Block comments work when the directive is the comment's only content, so both of
+these are directives:
+
+```ts
+/* sibujs-disable-next-line */
+element.innerHTML = html;
+
+/*
+ * sibujs-disable-next-line
+ */
+element.innerHTML = html;
+```
+
+A block comment that mixes the directive with prose — a JSDoc description, for
+example — is **not** a directive, so documentation that mentions the syntax
+cannot disable a rule by accident.
 
 ### `sibujs analyze`
 

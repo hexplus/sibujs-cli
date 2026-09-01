@@ -59,21 +59,21 @@ describe("templates use shorthand canonical syntax", () => {
 describe("templates dependency versions", () => {
   const pkgTpl = fs.readFileSync(path.join(TEMPLATES_ROOT, "default", "package.json.tpl"), "utf-8");
 
-  it("sibujs dependency is pinned to ^4.0.0", () => {
-    expect(pkgTpl).toMatch(/"sibujs":\s*"\^4\.0\.0"/);
+  it("sibujs dependency is pinned to ^4.0.1", () => {
+    expect(pkgTpl).toMatch(/"sibujs":\s*"\^4\.0\.1"/);
   });
 
-  it("sibujs-ui placeholder resolves to ^1.5.0", () => {
+  it("sibujs-ui placeholder resolves to ^1.5.2", () => {
     // The value is interpolated from create.ts — check the source.
     const createSrc = fs.readFileSync(
       path.resolve(__dirname, "..", "src", "commands", "create.ts"),
       "utf-8",
     );
-    expect(createSrc).toMatch(/"sibujs-ui":\s*"\^1\.5\.0"/);
+    expect(createSrc).toMatch(/"sibujs-ui":\s*"\^1\.5\.2"/);
   });
 
   it("declares a Node floor that satisfies both sibujs 4.0 and vite 8", () => {
-    // sibujs 4.0.0 needs >=22.3.0 (process.getBuiltinModule for SSR request
+    // sibujs 4.0.1 needs >=22.3.0 (process.getBuiltinModule for SSR request
     // isolation); vite 8 needs ^20.19.0 || >=22.12.0. The intersection is
     // >=22.12.0, and that is what a scaffolded project must declare.
     expect(JSON.parse(pkgTpl.replace(/\{\{[A-Z_]+\}\}/g, "")).engines.node).toBe(">=22.12.0");

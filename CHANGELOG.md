@@ -6,6 +6,25 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.4.1] — 2026-09-01
+
+Keeps scaffolded projects on the current releases.
+
+### Changed — template dependencies
+
+- `sibujs ^4.0.1` (was `^4.0.0`) and `sibujs-ui ^1.5.2` (was `^1.5.0`).
+
+  Both were caret ranges, so a fresh `npm install` already resolved to these
+  versions — what changes is the floor a generated `package.json` declares, and
+  therefore the baseline `certify-templates.mjs` builds against. Verified before
+  raising: 4.0.1 still requires Node `>= 22.3.0`, so the templates' `>= 22.12.0`
+  floor is unchanged (Vite 8 remains the binding constraint), and sibujs-ui
+  1.5.2 peers `sibujs >= 3.2.0 < 5.0.0`, which 4.0.1 satisfies.
+
+- `sibujs-cli ^1.4.1` in the generated `devDependencies`, matching this release.
+
+---
+
 ## [1.4.0] — 2026-08-29
 
 Scaffolds SibuJS 4.0 projects.

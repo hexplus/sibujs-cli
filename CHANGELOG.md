@@ -6,6 +6,33 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.4.2] — 2026-09-07
+
+Keeps scaffolded projects on the current releases.
+
+### Changed — template dependencies
+
+- `sibujs` → `^4.3.0` (was `^4.0.1`)
+- `sibujs-ui` → `^1.5.3` (was `^1.5.2`)
+- `sibujs-cli` → `^1.4.2` in the generated `devDependencies`
+
+The caret ranges already resolved to these versions, so a project scaffolded
+yesterday installed the same packages. What moves is the declared FLOOR: a
+generated `package.json` now states the version the templates are actually
+tested against, instead of one that happens to still satisfy the range. The
+tests that pin these values were updated with them, so the templates and their
+assertions cannot drift apart silently.
+
+`sibujs --version` was bumped in lockstep with `package.json`. Those drifted
+apart once before — the package said 1.3.3 while the CLI printed 1.3.0 — and a
+test has guarded the pair since.
+
+No change to the Node floor: sibujs 4.3 still requires `>=22.3.0` and Vite 8
+requires `^20.19.0 || >=22.12.0`, so the intersection a scaffolded project
+declares remains `>=22.12.0`.
+
+---
+
 ## [1.4.1] — 2026-09-01
 
 Keeps scaffolded projects on the current releases.

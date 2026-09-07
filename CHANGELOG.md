@@ -6,6 +6,48 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.4.3] — 2026-09-07
+
+Keeps scaffolded projects on the current releases.
+
+### Changed — template dependencies
+
+- `sibujs` → `^4.4.0` (was `^4.3.0`)
+- `sibujs-ui` → `^1.6.0` (was `^1.5.3`)
+- `sibujs-cli` → `^1.4.3` in the generated `devDependencies`
+
+The declared FLOOR moves to the versions the templates are actually tested
+against. The Node floor is unchanged: sibujs 4.4.0 still requires `>=22.3.0`,
+and Vite 8's `>=22.12.0` remains the binding constraint a generated project
+declares.
+
+Nothing in the scaffold's Tailwind setup changes. sibujs-ui 1.6.0 adds a
+compiled stylesheet for CDN consumers; a bundler project keeps importing
+`tailwindcss` and the theme files, which is what the generated CSS already
+does.
+
+### Changed — `analyze` size estimates re-measured
+
+The table in `analyze` carried figures taken against sibujs 4.0.0 and
+sibujs-ui 1.5.0, with a note to re-measure when the dependency graph moves —
+which this bump does. Re-measured with the same method (esbuild bundle +
+minify, gzip -9, marginal cost over the root package):
+
+| module | was | now |
+| --- | --- | --- |
+| `sibujs` (root) | 26.0 KB | 25.9 KB |
+| `sibujs/extras` | 54.8 KB | 54.6 KB |
+| `sibujs/patterns` | 3.6 KB | 3.4 KB |
+| `sibujs/ui` | 8.7 KB | 8.6 KB |
+| `sibujs/devtools` | 6.6 KB | 6.7 KB |
+| `sibujs/performance` | 3.4 KB | 3.3 KB |
+| `sibujs-ui` | 126.5 KB | 130.3 KB |
+
+Every other row re-measured identical. These are estimates the command prints,
+so a stale table quietly misreports what an import costs.
+
+---
+
 ## [1.4.2] — 2026-09-07
 
 Keeps scaffolded projects on the current releases.

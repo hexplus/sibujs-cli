@@ -4,7 +4,7 @@ import pc from "picocolors";
 
 // Module sizes in KB, minified + gzipped.
 //
-// Measured against the published sibujs 4.0.0 / sibujs-ui 1.5.0 packages with
+// Measured against the published sibujs 4.4.0 / sibujs-ui 1.6.0 packages with
 // esbuild (bundle + minify, gzip -9). The entry-point rows are the MARGINAL
 // cost of adding that entry on top of the root package, not its standalone
 // size, because this command adds them to the per-import estimates below
@@ -13,31 +13,31 @@ import pc from "picocolors";
 //
 // For reference, the standalone figures are roughly double the marginal ones
 // (sibujs/plugins is 28.1 KB alone but 18.7 KB on top of the root), and the
-// root package is 26.0 KB for `import * as`.
+// root package is 25.9 KB for `import * as`.
 //
 // Re-measure when the framework's dependency graph changes.
 const MODULE_SIZES: Record<string, number> = {
   // Root package, whole surface.
-  sibujs: 26.0,
+  sibujs: 25.9,
   // Entry points: marginal cost over the root.
-  "sibujs/extras": 54.8,
+  "sibujs/extras": 54.6,
   "sibujs/plugins": 18.7,
   // Build tooling runs in Node and never reaches the browser bundle.
   "sibujs/build": 0,
   "sibujs/testing": 9.7,
   "sibujs/data": 5.8,
   "sibujs/browser": 5.7,
-  "sibujs/patterns": 3.6,
+  "sibujs/patterns": 3.4,
   "sibujs/motion": 1.8,
-  "sibujs/ui": 8.7,
+  "sibujs/ui": 8.6,
   "sibujs/widgets": 6.4,
   "sibujs/ssr": 10.5,
-  "sibujs/devtools": 6.6,
-  "sibujs/performance": 3.4,
+  "sibujs/devtools": 6.7,
+  "sibujs/performance": 3.3,
   "sibujs/ecosystem": 1.8,
   // sibujs-ui, marginal over the root. Tree-shakes hard: a single component
   // such as { Button } costs about 20 KB of this once its primitives land.
-  "sibujs-ui": 126.5,
+  "sibujs-ui": 130.3,
   // Individual named imports (tree-shaken sizes)
   signal: 0.3,
   effect: 0.2,

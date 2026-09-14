@@ -1,0 +1,252 @@
+import fs from "node:fs";
+import path from "node:path";
+import { declaredDependencies } from "./dependencies.js";
+import { formatJson, parseJsonc } from "./jsonc.js";
+
+/**
+ * Project wiring for `sibujs init`: Tailwind CSS, the stylesheet, and the
+ * import alias in tsconfig and Vite.
+ *
+ * Config files are edited only when the edit is unambiguous — a strict-JSON
+ * tsconfig, a `defineConfig({ … })` Vite config. Anything else gets exact
+ * instructions instead, because silently mangling a hand-written config is
+ * worse than asking for a two-line paste.
+ */
+
+export interface FileChange {
+  /** Absolute path. */
+  file: string;
+  display: string;
+  /** New full content; absent when nothing needs writing. */
+  content?: string;
+  created?: boolean;
+  summary: string;
+}
+
+export interface SetupPlan {
+  changes: FileChange[];
+  /** Instructions for edits that could not be made automatically. */
+  manual: string[];
+  warnings: string[];
+  /** npm packages the setup needs (merged with the registry's). */
+  dependencies: string[];
+  devDependencies: string[];
+}
+
+const display = (root: string, file: string) => path.relative(root, file).replaceAll("\\", "/");
+
+/** Stylesheets `init` looks for, most likely first. */
+export const CSS_CANDIDATES = [
+  "src/app.css",
+  "src/style.css",
+  "src/styles.css",
+  "src/index.css",
+  "src/main.css",
+  "src/globals.css",
+  "src/styles/globals.css",
+  "app/globals.css",
+  "style.css",
+];
+
+export function detectCssFile(root: string): string | undefined {
+  return CSS_CANDIDATES.find((file) => fs.existsSync(path.join(root, file)));
+}
+
+const VITE_CONFIGS = ["vite.config.ts", "vite.config.mts", "vite.config.js", "vite.config.mjs"];
+
+export function findViteConfig(root: string): string | undefined {
+  return VITE_CONFIGS.map((f) => path.join(root, f)).find((f) => fs.existsSync(f));
+}
+
+/** Major Tailwind CSS version declared in package.json, if any. */
+export function declaredTailwindMajor(root: string): number | undefined | null {
+  const range = declaredDependencies(root).get("tailwindcss");
+  if (range === undefined) return undefined;
+  const match = /(\d+)/.exec(range);
+  return match ? Number(match[1]) : null;
+}
+
+/** Insert `line` after the last top-level import, or at the top. */
+function addImport(source: string, line: string): string {
+  // From `import` to the end of its module specifier, across lines for
+  // multi-line named imports; `import(` (a dynamic import) never matches.
+  const imports = [...source.matchAll(/^import[\s{*"'][\s\S]*?["'][^"'\n]*["'];?[ \t]*$/gm)];
+  const last = imports.at(-1);
+  if (!last) return `${line}\n${source}`;
+  const at = (last.index ?? 0) + last[0].length;
+  return `${source.slice(0, at)}\n${line}${source.slice(at)}`;
+}
+
+const CONFIG_OPEN = /defineConfig\(\s*\{/;
+
+export function planTailwind(root: string, plan: SetupPlan): void {
+  const major = declaredTailwindMajor(root);
+  if (major !== undefined && major !== null && major < 4) {
+    plan.warnings.push(
+      `package.json declares tailwindcss ${declaredDependencies(root).get("tailwindcss")}. sibujs-ui components need Tailwind CSS 4: https://tailwindcss.com/docs/upgrade-guide`,
+    );
+    return;
+  }
+  const deps = declaredDependencies(root);
+  if (major === undefined) plan.dependencies.push("tailwindcss@^4");
+
+  const viteFile = findViteConfig(root);
+  const hasPostcss = ["postcss.config.js", "postcss.config.mjs", "postcss.config.cjs"].some((f) =>
+    fs.existsSync(path.join(root, f)),
+  );
+  if (deps.has("@tailwindcss/postcss") || hasPostcss) return;
+  if (!deps.has("@tailwindcss/vite")) plan.dependencies.push("@tailwindcss/vite@^4");
+  if (!viteFile) {
+    plan.manual.push(
+      "No vite.config found. Tailwind CSS 4 needs a build integration: https://tailwindcss.com/docs/installation",
+    );
+    return;
+  }
+
+  const source = pendingContent(plan, viteFile) ?? fs.readFileSync(viteFile, "utf-8");
+  if (source.includes("@tailwindcss/vite")) return;
+  let next = addImport(source, 'import tailwindcss from "@tailwindcss/vite";');
+  const plugins = /plugins\s*:\s*\[/.exec(next);
+  if (plugins) {
+    const at = plugins.index + plugins[0].length;
+    const empty = /^\s*\]/.test(next.slice(at));
+    next = `${next.slice(0, at)}${empty ? "tailwindcss()" : "tailwindcss(), "}${next.slice(at).replace(empty ? /^\s*/ : /^/, "")}`;
+  } else if (CONFIG_OPEN.test(next)) {
+    next = next.replace(CONFIG_OPEN, (open) => `${open}\n  plugins: [tailwindcss()],`);
+  } else {
+    plan.manual.push(
+      `Add the Tailwind CSS plugin to ${display(root, viteFile)}:\n    import tailwindcss from "@tailwindcss/vite";\n    plugins: [tailwindcss()]`,
+    );
+    return;
+  }
+  setChange(plan, viteFile, display(root, viteFile), next, "add the @tailwindcss/vite plugin");
+}
+
+/**
+ * Make sure a stylesheet exists and is imported by the entry module. Returns
+ * the stylesheet path relative to the root, or `null` when there is nowhere
+ * sensible to put one.
+ */
+export function planStylesheet(root: string, requested: string | undefined, plan: SetupPlan): string | null {
+  const existing = requested ?? detectCssFile(root);
+  if (existing) {
+    if (fs.existsSync(path.join(root, existing))) {
+      const text = fs.readFileSync(path.join(root, existing), "utf-8");
+      if (text.includes("sibujs-ui/themes/")) {
+        plan.warnings.push(
+          `${existing} imports the packaged sibujs-ui themes (sibujs-ui/themes/*.css). The copied base.css defines the same tokens; remove those imports once you use copied components only.`,
+        );
+      }
+      return existing.replaceAll("\\", "/");
+    }
+  }
+  const rel = existing ?? (fs.existsSync(path.join(root, "src")) ? "src/app.css" : null);
+  if (!rel) return null;
+  const abs = path.join(root, rel);
+  setChange(plan, abs, rel, '@import "tailwindcss";\n', "create stylesheet", true);
+
+  const entry = ["src/main.ts", "src/main.js", "src/index.ts", "src/index.js"]
+    .map((f) => path.join(root, f))
+    .find((f) => fs.existsSync(f));
+  let specifier = path.relative(entry ? path.dirname(entry) : root, abs).replaceAll("\\", "/");
+  if (!specifier.startsWith(".")) specifier = `./${specifier}`;
+  if (entry) {
+    const source = fs.readFileSync(entry, "utf-8");
+    if (!source.includes(specifier)) {
+      setChange(plan, entry, display(root, entry), addImport(source, `import "${specifier}";`), `import ${rel}`);
+    }
+  } else {
+    plan.manual.push(`Import ${rel} from your entry module: import "${specifier}";`);
+  }
+  return rel;
+}
+
+/**
+ * Declare `<prefix>/*` → `<dir>/*` in tsconfig `paths` and in `resolve.alias`
+ * of the Vite config.
+ */
+export function planAlias(root: string, prefix: string, dir: string, plan: SetupPlan): void {
+  const target = dir === "." ? "./*" : `./${dir}/*`;
+  const tsconfig = ["tsconfig.app.json", "tsconfig.json"].map((f) => path.join(root, f)).find((f) => fs.existsSync(f));
+  if (!tsconfig) {
+    plan.manual.push(
+      `Declare the import alias in your tsconfig:\n    "compilerOptions": { "paths": { "${prefix}/*": ["${target}"] } }`,
+    );
+  } else {
+    const text = fs.readFileSync(tsconfig, "utf-8");
+    let parsed: { data: unknown } | undefined;
+    try {
+      parsed = parseJsonc(text);
+    } catch {
+      parsed = undefined;
+    }
+    const data = parsed?.data as { compilerOptions?: { paths?: Record<string, string[]> } } | undefined;
+    if (!data?.compilerOptions?.paths?.[`${prefix}/*`]) {
+      let strict = true;
+      try {
+        JSON.parse(text);
+      } catch {
+        strict = false;
+      }
+      if (data && strict) {
+        data.compilerOptions ??= {};
+        data.compilerOptions.paths = { ...data.compilerOptions.paths, [`${prefix}/*`]: [target] };
+        setChange(plan, tsconfig, display(root, tsconfig), formatJson(data), `add "${prefix}/*" to paths`);
+      } else {
+        plan.manual.push(
+          `Add the import alias to ${display(root, tsconfig)} (it has comments, so it was not edited):\n    "compilerOptions": { "paths": { "${prefix}/*": ["${target}"] } }`,
+        );
+      }
+    }
+  }
+
+  const viteFile = findViteConfig(root);
+  if (!viteFile) return;
+  const source = pendingContent(plan, viteFile) ?? fs.readFileSync(viteFile, "utf-8");
+  const dirUrl = dir === "." ? "./" : `./${dir}`;
+  const snippet = `resolve: {\n    alias: { "${prefix}": fileURLToPath(new URL("${dirUrl}", import.meta.url)) },\n  },`;
+  if (
+    new RegExp(`["']${escapeRegExp(prefix)}["']\\s*:`).test(source) ||
+    source.includes(`find: "${prefix}"`) ||
+    source.includes("vite-tsconfig-paths")
+  ) {
+    return;
+  }
+  if (/\bresolve\s*:/.test(source) || !CONFIG_OPEN.test(source)) {
+    plan.manual.push(
+      `Add the import alias to ${display(root, viteFile)}:\n    import { fileURLToPath } from "node:url";\n    ${snippet}`,
+    );
+    return;
+  }
+  let next = source.replace(CONFIG_OPEN, (open) => `${open}\n  ${snippet}`);
+  if (!/\bfileURLToPath\b.*from\s+["'](?:node:)?url["']/.test(source)) {
+    next = addImport(next, 'import { fileURLToPath } from "node:url";');
+  }
+  setChange(plan, viteFile, display(root, viteFile), next, `alias "${prefix}" → ${dirUrl}`);
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function pendingContent(plan: SetupPlan, file: string): string | undefined {
+  return plan.changes.find((c) => c.file === file)?.content;
+}
+
+function setChange(plan: SetupPlan, file: string, shown: string, content: string, summary: string, created = false) {
+  const existing = plan.changes.find((c) => c.file === file);
+  if (existing) {
+    existing.content = content;
+    existing.summary = `${existing.summary}; ${summary}`;
+  } else {
+    plan.changes.push({ file, display: shown, content, summary, created });
+  }
+}
+
+export function applySetup(plan: SetupPlan): void {
+  for (const change of plan.changes) {
+    if (change.content === undefined) continue;
+    fs.mkdirSync(path.dirname(change.file), { recursive: true });
+    fs.writeFileSync(change.file, change.content);
+  }
+}

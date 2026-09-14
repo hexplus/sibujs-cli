@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# An in-progress run for the same ref is superseded by a newer push.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: ${{ matrix.os == 'windows-latest' && 'Windows' || 'Linux' }} · Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 22.12 is the `engines` floor: Vite 8 and its native bundler binding
+          # need it, and below it npm silently skips that binding.
+          - os: ubuntu-latest
+            node: '22.12'
+          - os: ubuntu-latest
+            node: '22'
+          - os: ubuntu-latest
+            node: '24'
+          # Windows has its own code paths: package managers are .cmd shims run
+          # through a shell, paths use backslashes and drive letters.
+          - os: windows-latest
+            node: '24'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Packaging check
+        run: npm pack --dry-run
+
+  # Scaffolds every `sibujs create` flag combination from a packed tarball of
+  # this CLI, installs it from the npm registry, and type-checks, lints and
+  # builds each generated project. Needs network access and takes minutes, so
+  # it runs once, after the fast checks pass.
+  certify:
+    name: Certify templates
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Certify generated projects
+        run: npm run certify

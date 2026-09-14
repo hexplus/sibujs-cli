@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://unpkg.com/sibujs-cli/schema/components.json",
+  "title": "SibuJS components.json",
+  "description": "Project configuration for `sibujs init` and `sibujs add`: where copied sibujs-ui components go and which import aliases they use. Every key is optional; missing values are derived from `aliases` and tsconfig `paths`.",
+  "type": "object",
+  "properties": {
+    "$schema": { "type": "string" },
+    "style": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "default": "default",
+      "description": "`default` (neutral tokens) or a sibujs-ui color theme: blue, green, red, orange, amber, yellow, teal, purple, violet, rose. `sibujs init` installs the matching `theme-<style>` item."
+    },
+    "tailwind": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "integer",
+          "const": 4,
+          "description": "Tailwind CSS major version. sibujs-ui components require 4."
+        },
+        "css": {
+          "type": ["string", "null"],
+          "description": "Project stylesheet that imports Tailwind, relative to the project root. Style and theme `@import` lines are added to it. null: print them instead."
+        }
+      }
+    },
+    "css": {
+      "type": ["string", "null"],
+      "description": "Same as `tailwind.css`; accepted so a file written by the sibujs-ui CLI works unchanged. `tailwind.css` wins when both are set."
+    },
+    "registry": {
+      "type": "string",
+      "description": "Registry to read items from: a directory, a base URL (`<base>/<name>.json`), or a URL template containing `{name}`. Defaults to https://unpkg.com/sibujs-ui@latest/dist/registry. Overridden by --registry and $SIBUJS_REGISTRY."
+    },
+    "aliases": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Bare import specifiers. They must resolve in your tsconfig `paths` and your bundler; `sibujs init` declares `@/*` for you.",
+      "properties": {
+        "components": {
+          "type": "string",
+          "default": "@/components",
+          "description": "Root of your components. `ui` defaults to `<components>/ui`."
+        },
+        "ui": {
+          "type": "string",
+          "default": "@/components/ui",
+          "description": "Where copied components (registry:ui) are imported from."
+        },
+        "utils": {
+          "type": "string",
+          "default": "@/lib/utils",
+          "description": "The module exporting `cn()` and `cnReactive()`."
+        },
+        "lib": {
+          "type": "string",
+          "default": "@/lib",
+          "description": "Shared helpers, types and icons (registry:lib). Defaults to the directory of `utils`."
+        }
+      }
+    },
+    "paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Directories relative to the project root. Each defaults to where its alias points through tsconfig `paths`.",
+      "properties": {
+        "ui": { "type": "string", "description": "Components, e.g. src/components/ui." },
+        "lib": { "type": "string", "description": "Helpers, e.g. src/lib." },
+        "styles": {
+          "type": "string",
+          "description": "Base stylesheet and themes. Defaults to `styles/sibujs-ui` next to `lib`."
+        }
+      }
+    }
+  }
+}

@@ -6,6 +6,79 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.5.0] — 2026-09-13
+
+Copy sibujs-ui components into a project as source code.
+
+### Changed — template dependencies
+
+- `sibujs-cli` → `^1.5.0` in the generated `devDependencies`, so scaffolded
+  projects get `init`, `add` and `list`.
+
+### Added — `sibujs init`
+
+Prepares a project for copied components: writes `components.json`, sets up
+Tailwind CSS 4 (dependencies and the `@tailwindcss/vite` plugin) when the
+project does not have it, creates or detects the stylesheet and adds the style
+`@import` lines, declares the `@/*` alias in tsconfig and in the Vite config,
+and copies the `base` styles, `utils` (`cn()`) and the chosen theme. Config
+files are edited only when the edit is unambiguous: the Vite config is read
+structurally — only the object after the single `export default` is the
+configuration, a plugin counts only when its imported binding is called in that
+object's top-level `plugins` array, and comments or strings never count — and
+only top-level keys of that object are changed; anything else gets the exact
+lines to add. An explicit
+`--registry` is recorded in `components.json` even when the file exists, and a
+recorded registry survives `--force`. Flags: `--style`, `--css`, `--force`,
+`--overwrite`, `--yes`, `--dry-run`, `--no-install`, `--registry`, `--cwd`.
+
+### Added — `sibujs add <component...>`
+
+Fetches components from the registry, resolves `registryDependencies`
+recursively, rewrites registry imports to the project's aliases, writes the
+files and installs missing npm packages with the project's package manager
+(from `packageManager` or a lockfile, up to the repository root). Files that
+exist and differ are never replaced silently: `--overwrite` replaces them, an
+interactive terminal asks per file before anything is written, and anywhere
+else they are kept and reported. Unknown names get "did you mean"
+suggestions. `--path` (relative to `--cwd`) moves the ui import alias along
+with the files, so components that import each other still resolve; the alias
+comes only from a tsconfig `paths` wildcard, and a directory none covers is
+refused. Flags: `--all`, `--overwrite`, `--yes`, `--path`, `--dry-run`,
+`--no-install`, `--registry`, `--cwd`.
+
+### Added — `sibujs list`
+
+Lists registry items grouped as components, library, styles and themes, marks
+the installed ones, and supports `--type` and `--json`.
+
+### Added — `components.json` and its JSON Schema
+
+Every key is optional: `style`, `tailwind` (`version`, `css`), `registry`,
+`aliases` (`components`, `ui`, `utils`, `lib`) and `paths` (`ui`, `lib`,
+`styles`). Directories are derived from the aliases through tsconfig `paths`.
+The file is also readable by the `sibujs-ui` CLI. The schema ships as
+`schema/components.json`.
+
+### Added — registry sources
+
+`--registry`, `SIBUJS_REGISTRY`, the `registry` key, or the official registry
+at `https://unpkg.com/sibujs-ui@latest/dist/registry`. A source can be a local
+directory, a base URL or a `{name}` URL template. Redirecting base URLs are
+pinned to their target for the rest of the run; requests time out after 15
+seconds and retry on network errors and 5xx. Item names, file paths, CSS
+imports and dependency specs from the registry are validated before use, and
+every write is checked to stay inside its configured directory. Package names
+may not start with `-`, so no registry entry can pass an option to the package
+manager; npm additionally receives the packages after `--`.
+
+### Unchanged
+
+`create`, `generate`, `dev`, `build`, `preview`, `lint` and `analyze` behave as
+before.
+
+---
+
 ## [1.4.3] — 2026-09-07
 
 Keeps scaffolded projects on the current releases.

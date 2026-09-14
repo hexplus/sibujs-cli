@@ -22,9 +22,10 @@ Tailwind CSS 4 (dependencies and the `@tailwindcss/vite` plugin) when the
 project does not have it, creates or detects the stylesheet and adds the style
 `@import` lines, declares the `@/*` alias in tsconfig and in the Vite config,
 and copies the `base` styles, `utils` (`cn()`) and the chosen theme. Config
-files are edited only when the edit is unambiguous: the Vite config is scanned
-with comments and strings masked and only top-level keys of the config object
-are changed; anything else gets the exact lines to add. An explicit
+files are edited only when the edit is unambiguous: the Vite config is read
+structurally (real imports, the top-level config keys and `resolve.alias`, never
+comments or strings) and only top-level keys of the config object are changed;
+anything else gets the exact lines to add. An explicit
 `--registry` is recorded in `components.json` even when the file exists, and a
 recorded registry survives `--force`. Flags: `--style`, `--css`, `--force`,
 `--overwrite`, `--yes`, `--dry-run`, `--no-install`, `--registry`, `--cwd`.
@@ -38,9 +39,10 @@ files and installs missing npm packages with the project's package manager
 exist and differ are never replaced silently: `--overwrite` replaces them, an
 interactive terminal asks per file before anything is written, and anywhere
 else they are kept and reported. Unknown names get "did you mean"
-suggestions. `--path` moves the ui import alias along with the files, so
-components that import each other still resolve, and refuses a directory no
-alias reaches. Flags: `--all`, `--overwrite`, `--yes`, `--path`, `--dry-run`,
+suggestions. `--path` (relative to `--cwd`) moves the ui import alias along
+with the files, so components that import each other still resolve; the alias
+comes only from a tsconfig `paths` wildcard, and a directory none covers is
+refused. Flags: `--all`, `--overwrite`, `--yes`, `--path`, `--dry-run`,
 `--no-install`, `--registry`, `--cwd`.
 
 ### Added — `sibujs list`

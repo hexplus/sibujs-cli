@@ -53,7 +53,8 @@ export async function add(names: string[], options: AddOptions = {}, context: Co
 
   let config = await loadOrInit(root, options, context);
   if (options.path) {
-    const ui = path.relative(root, path.resolve(cwd, options.path)).replaceAll("\\", "/");
+    // Relative to the project (`--cwd`), like every other path in components.json.
+    const ui = path.relative(root, path.resolve(root, options.path)).replaceAll("\\", "/");
     if (ui === "" || ui.startsWith("..") || path.isAbsolute(ui)) {
       throw new CliError(`--path ${options.path} must be a directory inside the project (${root}).`);
     }
@@ -64,7 +65,7 @@ export async function add(names: string[], options: AddOptions = {}, context: Co
     if (!alias) {
       throw new CliError(
         `--path ${options.path} is not reachable through an import alias, so copied components could not import each other.`,
-        `Pick a directory under one of your alias roots (for example ${config.paths.ui.split("/")[0]}/…), or set "aliases.ui" and "paths.ui" in ${CONFIG_FILE}.`,
+        `Pick a directory covered by a wildcard in tsconfig "paths" (such as "@/*": ["./src/*"]), or set "aliases.ui" and "paths.ui" in ${CONFIG_FILE}.`,
       );
     }
     config = { ...config, aliases: { ...config.aliases, ui: alias }, paths: { ...config.paths, ui } };

@@ -11,7 +11,7 @@ import { formatJson, parseJsonc } from "../src/lib/registry/jsonc";
 import { planAlias, planTailwind, type SetupPlan, withTailwindPlugin } from "../src/lib/registry/project";
 import { isSafeDependencySpec, isSafeRegistryPath, parseItem } from "../src/lib/registry/schema";
 import { createRegistry, pickRegistry, resolveTree, suggestNames } from "../src/lib/registry/source";
-import { maskSource } from "../src/lib/registry/source-text";
+import { maskSource, readImports } from "../src/lib/registry/source-text";
 import { FIXTURE_ITEMS, read, tempDir, writeProject, writeRegistry } from "./helpers/registry-fixture";
 
 const emptyPlan = (): SetupPlan => ({ changes: [], manual: [], warnings: [], dependencies: [], devDependencies: [] });
@@ -399,7 +399,7 @@ describe("Vite config edits ignore comments and strings", () => {
   it("falls back to instructions for configs it cannot edit with certainty", () => {
     expect(withTailwindPlugin(`${VITE}export default defineConfig({ plugins: getPlugins() });\n`)).toBeNull();
     expect(withTailwindPlugin(`${VITE}export default defineConfig(({ mode }) => ({ plugins: [] }));\n`)).toBeNull();
-    expect(withTailwindPlugin(`${VITE}export default defineConfig({ "plugins": [] });\n`)).toBeNull();
+    expect(withTailwindPlugin(`${VITE}export default defineConfig({ ...base, mode: "x" });\n`)).toBeNull();
     expect(withTailwindPlugin(`${VITE}/* unterminated\nexport default defineConfig({});\n`)).toBeNull();
     expect(withTailwindPlugin('import tailwindcss from "@tailwindcss/vite";\nexport default {};\n')).toBeUndefined();
   });
@@ -440,13 +440,94 @@ describe("Vite config edits ignore comments and strings", () => {
 });
 
 describe("aliasForDirectory", () => {
-  it("maps a directory through the configured alias roots and tsconfig paths", () => {
-    writeProject(tmp, { "tsconfig.json": JSON.stringify({ compilerOptions: { paths: { "~/*": ["./app/*"] } } }) });
+  const withPaths = (paths: Record<string, string[]>) =>
+    writeProject(tmp, { "tsconfig.json": JSON.stringify({ compilerOptions: { paths } }) });
+
+  it("maps a directory through tsconfig wildcards", () => {
+    withPaths({ "@/*": ["./src/*"], "~/*": ["./app/*"] });
     const config = resolveConfig(tmp, createDefaultConfig(tmp));
     expect(aliasForDirectory(config, "src/widgets")).toBe("@/widgets");
     expect(aliasForDirectory(config, "src")).toBe("@");
     expect(aliasForDirectory(config, "app/ui")).toBe("~/ui");
     expect(aliasForDirectory(config, "widgets")).toBeUndefined();
+  });
+
+  it("never extrapolates a root from the shape of a configured alias", () => {
+    withPaths({});
+    const raw = { aliases: { ui: "@acme/ui" }, paths: { ui: "src/components/ui", lib: "src/lib" } };
+    const config = resolveConfig(tmp, raw);
+    expect(aliasForDirectory(config, "src/components/widgets")).toBeUndefined();
+    expect(aliasForDirectory(config, "src/components/ui")).toBe("@acme/ui");
+  });
+
+  it("uses an explicit wildcard for the same layout, preferring the most specific one", () => {
+    withPaths({ "@/*": ["./src/*"], "@acme/*": ["./src/components/*"] });
+    const config = resolveConfig(tmp, { aliases: { ui: "@acme/ui" }, paths: { ui: "src/components/ui", lib: "src/lib" } });
+    expect(aliasForDirectory(config, "src/components/widgets")).toBe("@acme/widgets");
+    expect(aliasForDirectory(config, "src/widgets")).toBe("@/widgets");
+  });
+});
+
+describe("Vite presence checks look at real imports and the real resolve.alias", () => {
+  const VITE = 'import { defineConfig } from "vite";\n';
+  const aliasPlan = (viteConfig: string) => {
+    writeProject(tmp, {
+      "tsconfig.json": JSON.stringify({ compilerOptions: { paths: { "@/*": ["./src/*"] } } }),
+      "vite.config.ts": viteConfig,
+    });
+    const plan = emptyPlan();
+    planAlias(tmp, "@", "src", plan);
+    return plan;
+  };
+
+  it("adds the plugin when @tailwindcss/vite only appears in a string", () => {
+    const out = withTailwindPlugin(
+      `${VITE}const documentation = "@tailwindcss/vite";\nexport default defineConfig({ plugins: [] });\n`,
+    );
+    expect(out).toContain('import tailwindcss from "@tailwindcss/vite";');
+    expect(out).toContain("plugins: [tailwindcss()]");
+  });
+
+  it("extends a quoted plugins key", () => {
+    expect(withTailwindPlugin(`${VITE}export default defineConfig({ "plugins": [a()] });\n`)).toContain(
+      '"plugins": [tailwindcss(), a()]',
+    );
+  });
+
+  it("adds the alias despite unrelated '@' keys, find: '@' objects and vite-tsconfig-paths strings", () => {
+    const plan = aliasPlan(
+      `${VITE}const icons = { "@": "at" };\nconst rule = { find: "@", replace: "x" };\nconst hint = "vite-tsconfig-paths";\nexport default defineConfig({\n  define: { "@": "1" },\n});\n`,
+    );
+    expect(plan.manual).toEqual([]);
+    expect(plan.changes[0].content).toContain('alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) }');
+  });
+
+  it("adds the fileURLToPath import when the name only appears in a string", () => {
+    const plan = aliasPlan(`${VITE}const s = "import { fileURLToPath } from 'node:url'";\nexport default defineConfig({});\n`);
+    expect(plan.changes[0].content).toMatch(/^import \{ fileURLToPath \} from "node:url";$/m);
+  });
+
+  it("recognises an alias already declared in the top-level resolve.alias, as an object or an array", () => {
+    expect(aliasPlan(`${VITE}export default defineConfig({ resolve: { alias: { "@": "/src" } } });\n`)).toEqual(
+      emptyPlan(),
+    );
+    expect(aliasPlan(`${VITE}export default defineConfig({ resolve: { alias: [{ find: "@", replacement: "/src" }] } });\n`)).toEqual(
+      emptyPlan(),
+    );
+    expect(aliasPlan(`${VITE}import tsconfigPaths from "vite-tsconfig-paths";\nexport default defineConfig({ plugins: [tsconfigPaths()] });\n`)).toEqual(
+      emptyPlan(),
+    );
+  });
+
+  it("does not count an alias nested outside the top-level resolve", () => {
+    const plan = aliasPlan(`${VITE}export default defineConfig({ ssr: { resolve: { alias: { "@": "/src" } } } });\n`);
+    expect(plan.changes[0].content).toContain("defineConfig({\n  resolve: {");
+  });
+
+  it("reads imports from code only", () => {
+    const source = `import a from "x";\n// import b from "y";\nconst s = 'import c from "z"';\nimport "side";\nconst r = require("r");\n`;
+    const code = maskSource(source, { strings: true })!;
+    expect(readImports(code, source).map((i) => i.specifier)).toEqual(["x", "side", "r"]);
   });
 });
 

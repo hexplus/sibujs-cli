@@ -227,6 +227,35 @@ describe("sibujs add", () => {
     expect(output()).toContain('import { Dialog } from "@/widgets/dialog";');
   });
 
+  it("resolves a relative --path against --cwd, not the process directory", async () => {
+    // Both relative, exactly as typed: `sibujs add dialog --cwd <app> --path src/widgets`.
+    const cwd = path.relative(process.cwd(), root);
+    expect(path.isAbsolute(cwd)).toBe(false);
+    await add(["dialog"], { ...base(), cwd, path: "src/widgets" }, { log });
+    expect(read(root, "src/widgets/dialog.ts")).toContain('import { Button } from "@/widgets/button";');
+    expect(fs.existsSync(path.join(process.cwd(), "src/widgets"))).toBe(false);
+  });
+
+  it("never invents an alias from the shape of aliases.ui", async () => {
+    const config = JSON.parse(read(root, "components.json"));
+    config.aliases = { ui: "@acme/ui", lib: "@/lib", utils: "@/lib/utils" };
+    fs.writeFileSync(path.join(root, "components.json"), JSON.stringify(config));
+
+    // With the "@/*" wildcard init declared, the declared alias is used…
+    await add(["dialog"], { ...base(), path: "src/components/widgets" }, { log });
+    const dialog = read(root, "src/components/widgets/dialog.ts");
+    expect(dialog).toContain('from "@/components/widgets/button"');
+    expect(dialog).not.toContain("@acme/widgets");
+
+    // …and without any wildcard, nothing reaches the directory.
+    fs.writeFileSync(path.join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: {} }));
+    const before = snapshot(root);
+    await expect(add(["dialog"], { ...base(), path: "src/elsewhere" }, { log })).rejects.toThrow(
+      /not reachable through an import alias/,
+    );
+    expect(snapshot(root)).toEqual(before);
+  });
+
   it("rejects a --path no import alias reaches, or one outside the project", async () => {
     const before = snapshot(root);
     const error = await add(["dialog"], { ...base(), path: path.join(root, "widgets") }, { log }).catch((e) => e);

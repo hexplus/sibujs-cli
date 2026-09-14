@@ -1,13 +1,16 @@
 /**
- * Just enough JavaScript lexing to edit config files safely: blank out
- * comments (and optionally string contents) so structural patterns such as
- * `plugins: [` only ever match real code.
+ * Just enough JavaScript lexing to edit config files safely.
  *
- * The result has the same length and line breaks as the input, so a match
- * index in the masked text is the same index in the original. Anything the
- * scanner is not sure about (an unterminated string, comment or regular
- * expression) returns `null`, and callers fall back to printing instructions
- * rather than guessing.
+ * `maskSource` blanks out comments (and optionally string contents) so
+ * structural patterns only ever match real code. The result has the same
+ * length and line breaks as the input, so an index in the masked text is the
+ * same index in the original. Anything the scanner is not sure about (an
+ * unterminated string, comment or regular expression) returns `null`, and
+ * callers fall back to printing instructions rather than guessing.
+ *
+ * The readers below work on source masked with `strings: true` — string
+ * contents are spaces but their quotes remain — and read literal values back
+ * from the original text at the same indices.
  */
 export function maskSource(source: string, options: { strings: boolean }): string | null {
   const out = source.split("");
@@ -75,37 +78,139 @@ export function maskSource(source: string, options: { strings: boolean }): strin
   return out.join("");
 }
 
-const OPENERS: Record<string, string> = { "{": "}", "[": "]", "(": ")" };
+const QUOTES = new Set(['"', "'", "`"]);
+const CLOSERS: Record<string, string> = { "{": "}", "[": "]", "(": ")" };
+
+/** Index of the first non-whitespace character at or after `index`. */
+export function skipSpace(code: string, index: number): number {
+  let i = index;
+  while (i < code.length && /\s/.test(code[i])) i++;
+  return i;
+}
+
+/** The string literal starting at `index` (after whitespace), or `undefined`. */
+export function stringAt(code: string, source: string, index: number): string | undefined {
+  const start = skipSpace(code, index);
+  const quote = code[start];
+  if (!QUOTES.has(quote)) return undefined;
+  const end = code.indexOf(quote, start + 1);
+  if (end === -1) return undefined;
+  const text = source.slice(start + 1, end);
+  // A template with substitutions has no single static value.
+  return quote === "`" && text.includes("${") ? undefined : text;
+}
+
+/** Index of the bracket that closes the one at `open`, or -1. */
+function matching(code: string, open: number): number {
+  const stack: string[] = [];
+  for (let i = open; i < code.length; i++) {
+    const ch = code[i];
+    if (CLOSERS[ch]) stack.push(CLOSERS[ch]);
+    else if (ch === "}" || ch === "]" || ch === ")") {
+      if (stack.pop() !== ch) return -1;
+      if (stack.length === 0) return i;
+    }
+  }
+  return -1;
+}
+
+export interface ObjectLiteral {
+  /** Property name → index just after its `:`. */
+  keys: Map<string, number>;
+  /** A spread, computed key or shorthand property makes the key set unknowable. */
+  opaque: boolean;
+  close: number;
+}
 
 /**
- * Within the object literal whose `{` is at `open` in masked `code`, find a
- * property named `key` at the top level of that object (not in a nested
- * object such as `build.rollupOptions`). Returns the index just after
- * `key:`, or -1. Also returns the index of the object's closing `}`.
+ * The properties at the top level of the object literal whose `{` is at
+ * `open`. `null` when the braces do not balance.
  */
-export function findTopLevelKey(code: string, open: number, key: string): { value: number; close: number } {
-  const stack: string[] = [];
-  let value = -1;
-  let lastSignificant = "{";
-  const pattern = new RegExp(`^${key}\\s*:`);
-  for (let i = open + 1; i < code.length; i++) {
-    const ch = code[i];
-    if (OPENERS[ch]) {
-      stack.push(OPENERS[ch]);
-    } else if (ch === "}" || ch === "]" || ch === ")") {
-      if (stack.length === 0) return { value, close: ch === "}" ? i : -1 };
-      if (stack.pop() !== ch) return { value: -1, close: -1 };
-    } else if (
-      stack.length === 0 &&
-      value === -1 &&
-      (lastSignificant === "{" || lastSignificant === ",") &&
-      /[A-Za-z_$]/.test(ch)
-    ) {
-      // A property name at depth 0 directly follows `{` or `,`.
-      const match = pattern.exec(code.slice(i, i + key.length + 64));
-      if (match) value = i + match[0].length;
+export function readObject(code: string, source: string, open: number): ObjectLiteral | null {
+  const close = matching(code, open);
+  if (close === -1) return null;
+  const keys = new Map<string, number>();
+  let opaque = false;
+  let i = open + 1;
+  while (i < close) {
+    i = skipSpace(code, i);
+    if (i >= close) break;
+    let name: string | undefined;
+    let after = i;
+    if (QUOTES.has(code[i])) {
+      name = stringAt(code, source, i);
+      after = code.indexOf(code[i], i + 1) + 1;
+    } else {
+      const ident = /^[A-Za-z_$][\w$]*/.exec(code.slice(i, close));
+      if (ident) {
+        name = ident[0];
+        after = i + ident[0].length;
+      }
     }
-    if (!/\s/.test(ch)) lastSignificant = ch;
+    const colon = skipSpace(code, after);
+    if (name === undefined || code[colon] !== ":") opaque = true;
+    else if (!keys.has(name)) keys.set(name, colon + 1);
+
+    // Move past this property's value to the next top-level comma.
+    let j = name !== undefined && code[colon] === ":" ? colon + 1 : i;
+    for (; j < close; j++) {
+      const ch = code[j];
+      if (CLOSERS[ch]) {
+        j = matching(code, j);
+        if (j === -1) return null;
+      } else if (ch === ",") {
+        break;
+      }
+    }
+    i = j + 1;
   }
-  return { value, close: -1 };
+  return { keys, opaque, close };
+}
+
+/** Start indices of the top-level elements of the array literal at `open`. */
+export function readArray(code: string, open: number): number[] | null {
+  const close = matching(code, open);
+  if (close === -1) return null;
+  const elements: number[] = [];
+  let i = open + 1;
+  while (i < close) {
+    i = skipSpace(code, i);
+    if (i >= close) break;
+    elements.push(i);
+    let j = i;
+    for (; j < close; j++) {
+      if (CLOSERS[code[j]]) {
+        j = matching(code, j);
+        if (j === -1) return null;
+      } else if (code[j] === ",") {
+        break;
+      }
+    }
+    i = j + 1;
+  }
+  return elements;
+}
+
+export interface ImportDeclaration {
+  specifier: string;
+  /** What is imported, e.g. `tailwindcss` or `{ fileURLToPath }`; empty for side-effect imports. */
+  clause: string;
+}
+
+/**
+ * Real `import … from "x"`, `import "x"` and `require("x")` in the file.
+ * Strings and comments that merely mention a module never count, because the
+ * keyword itself must be code.
+ */
+export function readImports(code: string, source: string): ImportDeclaration[] {
+  const found: ImportDeclaration[] = [];
+  const pattern = /(?<![\w$.])import\s*([\w$*{},\s]*?)\s*(?:from\s*)?(?=["'])|(?<![\w$.])require\s*\(\s*(?=["'])/g;
+  for (const match of code.matchAll(pattern)) {
+    const at = (match.index ?? 0) + match[0].length;
+    const specifier = stringAt(code, source, at);
+    if (specifier === undefined) continue;
+    const clause = match[0].startsWith("import") ? (match[1] ?? "").trim() : "";
+    found.push({ specifier, clause });
+  }
+  return found;
 }

@@ -2,7 +2,16 @@ import fs from "node:fs";
 import path from "node:path";
 import { declaredDependencies } from "./dependencies.js";
 import { formatJson, parseJsonc } from "./jsonc.js";
-import { findTopLevelKey, maskSource } from "./source-text.js";
+import {
+  type ImportDeclaration,
+  maskSource,
+  type ObjectLiteral,
+  readArray,
+  readImports,
+  readObject,
+  skipSpace,
+  stringAt,
+} from "./source-text.js";
 
 /**
  * Project wiring for `sibujs init`: Tailwind CSS, the stylesheet, and the
@@ -88,21 +97,28 @@ function addImport(source: string, line: string): string | null {
 const CONFIG_OPEN = /(?:\bdefineConfig\(\s*|\bexport\s+default\s+)\{/;
 
 interface ViteSource {
-  source: string;
-  /** Comments and string contents blanked. */
+  /** Comments and string contents blanked, quotes kept. */
   code: string;
-  /** Comments blanked, strings intact. */
-  noComments: string;
+  imports: ImportDeclaration[];
   /** Index of the config object's `{`, or -1. */
   open: number;
+  /** Top-level properties of the config object; `null` without one. */
+  config: ObjectLiteral | null;
 }
 
 function scanVite(source: string): ViteSource | null {
   const code = maskSource(source, { strings: true });
-  const noComments = maskSource(source, { strings: false });
-  if (code === null || noComments === null) return null;
+  if (code === null) return null;
   const match = CONFIG_OPEN.exec(code);
-  return { source, code, noComments, open: match ? match.index + match[0].length - 1 : -1 };
+  const open = match ? match.index + match[0].length - 1 : -1;
+  const config = open === -1 ? null : readObject(code, source, open);
+  return { code, imports: readImports(code, source), open, config };
+}
+
+/** An object or array literal as a property value, or `undefined` for anything else. */
+function literalAt(code: string, index: number): { kind: "{" | "["; open: number } | undefined {
+  const at = skipSpace(code, index);
+  return code[at] === "{" || code[at] === "[" ? { kind: code[at] as "{" | "[", open: at } : undefined;
 }
 
 export function planTailwind(root: string, plan: SetupPlan): void {
@@ -147,18 +163,19 @@ export function planTailwind(root: string, plan: SetupPlan): void {
 export function withTailwindPlugin(source: string): string | null | undefined {
   const vite = scanVite(source);
   if (!vite) return null;
-  // Only a real import counts; a mention in a comment does not.
-  if (/["']@tailwindcss\/vite["']/.test(vite.noComments)) return undefined;
-  if (vite.open === -1 || /["']plugins["']\s*:/.test(vite.noComments)) return null;
+  // Only a real import counts; a comment or a string naming the package does not.
+  if (vite.imports.some((i) => i.specifier === "@tailwindcss/vite")) return undefined;
+  if (!vite.config) return null;
 
-  const { value, close } = findTopLevelKey(vite.code, vite.open, "plugins");
-  if (close === -1) return null;
+  const value = vite.config.keys.get("plugins");
+  // A spread or shorthand could already hold `plugins`; do not add a second one.
+  if (value === undefined && vite.config.opaque) return null;
   let body: string;
-  if (value !== -1) {
-    const bracket = /^\s*\[/.exec(vite.code.slice(value));
+  if (value !== undefined) {
+    const literal = literalAt(vite.code, value);
     // `plugins: somePlugins()` or a variable: not an array literal to extend.
-    if (!bracket) return null;
-    const at = value + bracket[0].length;
+    if (literal?.kind !== "[") return null;
+    const at = literal.open + 1;
     const empty = /^\s*\]/.test(vite.code.slice(at));
     body = empty
       ? `${source.slice(0, at)}tailwindcss()${source.slice(at).replace(/^\s*/, "")}`
@@ -274,20 +291,42 @@ export function planAlias(root: string, prefix: string, dir: string, plan: Setup
 function withAlias(source: string, prefix: string, snippet: string): string | null | undefined {
   const vite = scanVite(source);
   if (!vite) return null;
-  if (
-    new RegExp(`["']${escapeRegExp(prefix)}["']\\s*:`).test(vite.noComments) ||
-    new RegExp(`find\\s*:\\s*["']${escapeRegExp(prefix)}["']`).test(vite.noComments) ||
-    /["']vite-tsconfig-paths["']/.test(vite.noComments)
-  ) {
-    return undefined;
+  // vite-tsconfig-paths resolves the tsconfig alias itself.
+  if (vite.imports.some((i) => i.specifier === "vite-tsconfig-paths")) return undefined;
+  if (!vite.config) return null;
+
+  const resolve = vite.config.keys.get("resolve");
+  if (resolve !== undefined) {
+    // Already declared in the top-level `resolve.alias`? Anything else in an
+    // existing `resolve` is left for the user to merge.
+    return declaresAlias(vite.code, source, resolve, prefix) ? undefined : null;
   }
-  if (vite.open === -1 || /["']resolve["']\s*:/.test(vite.noComments)) return null;
-  const { value, close } = findTopLevelKey(vite.code, vite.open, "resolve");
-  if (close === -1 || value !== -1) return null;
+  if (vite.config.opaque) return null;
 
   const next = `${source.slice(0, vite.open + 1)}\n  ${snippet}${source.slice(vite.open + 1)}`;
-  if (/\bfileURLToPath\b[^;]*from\s+["'](?:node:)?url["']/.test(vite.noComments)) return next;
-  return addImport(next, 'import { fileURLToPath } from "node:url";');
+  const hasFileURLToPath = vite.imports.some(
+    (i) => (i.specifier === "node:url" || i.specifier === "url") && /\bfileURLToPath\b/.test(i.clause),
+  );
+  return hasFileURLToPath ? next : addImport(next, 'import { fileURLToPath } from "node:url";');
+}
+
+/**
+ * Whether the `resolve` value at `index` is an object whose `alias` maps
+ * `prefix`, as `{ "@": … }` or `[{ find: "@", … }]`.
+ */
+function declaresAlias(code: string, source: string, index: number, prefix: string): boolean {
+  const resolve = literalAt(code, index);
+  if (resolve?.kind !== "{") return false;
+  const alias = readObject(code, source, resolve.open)?.keys.get("alias");
+  if (alias === undefined) return false;
+  const value = literalAt(code, alias);
+  if (value?.kind === "{") return readObject(code, source, value.open)?.keys.has(prefix) ?? false;
+  if (value?.kind !== "[") return false;
+  return (readArray(code, value.open) ?? []).some((element) => {
+    if (code[element] !== "{") return false;
+    const find = readObject(code, source, element)?.keys.get("find");
+    return find !== undefined && stringAt(code, source, find) === prefix;
+  });
 }
 
 function escapeRegExp(s: string): string {

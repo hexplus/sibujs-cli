@@ -216,34 +216,29 @@ export function resolveConfig(root: string, raw: ComponentsJson): ProjectConfig 
 }
 
 /**
- * The import specifier that reaches `dir` (relative to the root), using the
- * alias roots the project already has: each configured alias/path pair
- * (`@/components/ui` ↔ `src/components/ui` means `@` ↔ `src`) and every
- * tsconfig `paths` wildcard. `undefined` when no alias reaches it.
+ * The import specifier that reaches `dir` (relative to the root), or
+ * `undefined` when nothing the project declares reaches it.
+ *
+ * Only two things count: the configured ui directory itself, and a wildcard in
+ * tsconfig `paths` (`"@/*": ["./src/*"]` makes `src/widgets` → `@/widgets`).
+ * An alias is never extrapolated from the shape of another one: `@acme/ui` at
+ * `src/components/ui` says nothing about what `@acme/widgets` resolves to.
+ * The most specific wildcard wins.
  */
 export function aliasForDirectory(config: ProjectConfig, dir: string): string | undefined {
   const target = normalizeRel(dir);
-  const roots: [alias: string, dir: string][] = [];
-  for (const [alias, where] of [
-    [config.aliases.ui, config.paths.ui],
-    [config.aliases.lib, config.paths.lib],
-  ]) {
-    const a = alias.split("/");
-    const d = where === "." ? [] : where.split("/");
-    // Drop the trailing segments both share; what remains is the alias root.
-    while (a.length > 1 && d.length > 0 && a[a.length - 1] === d[d.length - 1]) {
-      a.pop();
-      d.pop();
-    }
-    roots.push([a.join("/"), d.length === 0 ? "." : d.join("/")]);
-  }
+  if (target === config.paths.ui) return config.aliases.ui;
+
   const tsPaths = readTsconfigPaths(config.root);
+  const roots: [alias: string, base: string][] = [];
   for (const [pattern, targets] of Object.entries(tsPaths?.paths ?? {})) {
     const first = Array.isArray(targets) ? targets[0] : undefined;
     if (pattern.endsWith("/*") && typeof first === "string" && first.endsWith("/*")) {
       roots.push([pattern.slice(0, -2), normalizeRel(path.posix.join(tsPaths!.baseDir, first.slice(0, -2)))]);
     }
   }
+  const depth = (base: string) => (base === "." ? 0 : base.split("/").length);
+  roots.sort((a, b) => depth(b[1]) - depth(a[1]));
   for (const [alias, base] of roots) {
     if (base === ".") return target === "." ? alias : `${alias}/${target}`;
     if (target === base) return alias;

@@ -164,13 +164,18 @@ What it does, skipping anything already in place:
 6. Installs the npm dependencies with the project's package manager.
 
 Config files are only edited when the edit is unambiguous. The Vite config is
-read with comments and strings masked out, so a commented-out `// plugins: []`
-or a comment mentioning `@tailwindcss/vite` is never mistaken for the real
-thing, and only top-level keys of the `defineConfig({ … })` or
-`export default { … }` object are touched (never `build.rollupOptions.plugins`).
-A tsconfig with comments, a function-form config, `plugins: somePlugins()`, or
-an existing `resolve` block is left as it is, and `init` prints the exact lines
-to add instead.
+read structurally rather than searched as text:
+
+- "already set up" means a real `import` of `@tailwindcss/vite` or
+  `vite-tsconfig-paths`, or the alias key in the top-level `resolve.alias`
+  (object or `[{ find }]` form) — a comment, a string, or an unrelated `"@"`
+  property elsewhere never counts;
+- only top-level keys of the `defineConfig({ … })` or `export default { … }`
+  object are changed, never nested ones such as `build.rollupOptions.plugins`.
+
+A tsconfig with comments, a function-form config, a spread in the config
+object, `plugins: somePlugins()`, or an existing `resolve` block without the
+alias is left as it is, and `init` prints the exact lines to add instead.
 
 `--registry` is recorded in `components.json`, also when the file already
 exists, so later `add` runs read from the same place. Without the flag, the
@@ -258,17 +263,19 @@ aliases work without editing anything by hand.
 #### Installing somewhere else with `--path`
 
 Components import each other through the ui alias, so `--path` moves the alias
-with the files. The directory must be reachable through an alias root the
-project already has — the one in `components.json` (`@` ↔ `src`) or any
-tsconfig `paths` wildcard:
+with the files. A relative `--path` is resolved against the project (`--cwd`),
+and the directory must be covered by a wildcard in tsconfig `paths`, the most
+specific one winning:
 
 ```bash
 sibujs add dialog --path src/widgets
-# src/widgets/dialog.ts: import { Button } from "@/widgets/button";
+# with "@/*": ["./src/*"] → src/widgets/dialog.ts: import { Button } from "@/widgets/button";
 ```
 
-A directory no alias reaches (for example `widgets/` at the project root, with
-`@/*` pointing at `src/*`) is refused before anything is written. To use such a
+An alias is never guessed from the shape of another one: `aliases.ui`
+`@acme/ui` at `src/components/ui` does not make `src/components/widgets`
+reachable as `@acme/widgets` unless tsconfig declares `"@acme/*"`. A directory
+no wildcard covers is refused before anything is written. To use such a
 directory permanently, set `aliases.ui` and `paths.ui` in `components.json`.
 
 #### Existing files are never lost silently

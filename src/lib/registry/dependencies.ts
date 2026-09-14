@@ -99,8 +99,12 @@ export function planDependencies(
     [devDependencies, ["-D"]],
   ] as const) {
     if (specs.length === 0) continue;
-    const args = [add, ...flags, ...specs];
-    commands.push({ args, display: `${pm} ${args.map(quote).join(" ")}` });
+    const shown = [add, ...flags, ...specs];
+    // Defence in depth on top of the name validation: `--` ends option
+    // parsing, so no spec can ever be read as a flag. Verified for npm; the
+    // other package managers rely on the validation alone.
+    const args = pm === "npm" ? [add, ...flags, "--", ...specs] : shown;
+    commands.push({ args, display: `${pm} ${shown.map(quote).join(" ")}` });
   }
   return { pm, dependencies, devDependencies, commands };
 }

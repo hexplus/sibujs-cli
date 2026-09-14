@@ -3,14 +3,15 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createDefaultConfig, resolveConfig } from "../src/lib/registry/config";
+import { aliasForDirectory, createDefaultConfig, resolveConfig } from "../src/lib/registry/config";
 import { detectProjectPackageManager, planDependencies } from "../src/lib/registry/dependencies";
 import { CliError, ItemNotFoundError } from "../src/lib/registry/errors";
 import { planCss, planFiles, targetPath, transformContent } from "../src/lib/registry/files";
 import { formatJson, parseJsonc } from "../src/lib/registry/jsonc";
-import { planAlias, planTailwind, type SetupPlan } from "../src/lib/registry/project";
+import { planAlias, planTailwind, type SetupPlan, withTailwindPlugin } from "../src/lib/registry/project";
 import { isSafeDependencySpec, isSafeRegistryPath, parseItem } from "../src/lib/registry/schema";
 import { createRegistry, pickRegistry, resolveTree, suggestNames } from "../src/lib/registry/source";
+import { maskSource } from "../src/lib/registry/source-text";
 import { FIXTURE_ITEMS, read, tempDir, writeProject, writeRegistry } from "./helpers/registry-fixture";
 
 const emptyPlan = (): SetupPlan => ({ changes: [], manual: [], warnings: [], dependencies: [], devDependencies: [] });
@@ -35,6 +36,15 @@ describe("registry schema validation", () => {
     for (const spec of ['x@"1"', "x@1 & calc", "x@%PATH%", "x@$(id)", "x@`id`", "x@1!", "../x", "X@1", "x@1\\2"]) {
       expect(isSafeDependencySpec(spec), spec).toBe(false);
     }
+  });
+
+  it("rejects names a package manager would read as options", () => {
+    for (const spec of ["--global", "--force", "--ignore-scripts", "-g", "-D", "--registry=http://x", "-x@1", "@-x/y"]) {
+      expect(isSafeDependencySpec(spec), spec).toBe(false);
+    }
+    expect(() => parseItem({ ...FIXTURE_ITEMS.button, dependencies: ["--ignore-scripts"] }, "b")).toThrow(
+      /invalid package spec/,
+    );
   });
 
   it("only allows plain paths under ui/, lib/ and styles/", () => {
@@ -337,6 +347,106 @@ describe("dependencies", () => {
     expect(plan.dependencies).toEqual(["clsx@^2.1.1"]);
     expect(plan.devDependencies).toEqual(["tailwindcss@^4"]);
     expect(plan.commands.map((c) => c.display)).toEqual(['pnpm add "clsx@^2.1.1"', 'pnpm add -D "tailwindcss@^4"']);
+  });
+});
+
+describe("dependency commands", () => {
+  it("ends npm option parsing before the package operands, without showing it", () => {
+    writeProject(tmp);
+    fs.mkdirSync(path.join(tmp, ".git"));
+    const plan = planDependencies(tmp, { dependencies: ["clsx@^2.1.1"], devDependencies: ["tailwindcss@^4"] });
+    expect(plan.commands.map((c) => c.args)).toEqual([
+      ["install", "--", "clsx@^2.1.1"],
+      ["install", "-D", "--", "tailwindcss@^4"],
+    ]);
+    expect(plan.commands.map((c) => c.display)).toEqual(['npm install "clsx@^2.1.1"', 'npm install -D "tailwindcss@^4"']);
+  });
+});
+
+describe("Vite config edits ignore comments and strings", () => {
+  const VITE = 'import { defineConfig } from "vite";\n\n';
+
+  it("adds a real plugins key when the only `plugins: [` is commented out", () => {
+    const out = withTailwindPlugin(`${VITE}export default defineConfig({\n  // plugins: [],\n});\n`);
+    expect(out).toBe(
+      'import { defineConfig } from "vite";\nimport tailwindcss from "@tailwindcss/vite";\n\nexport default defineConfig({\n  plugins: [tailwindcss()],\n  // plugins: [],\n});\n',
+    );
+  });
+
+  it("does not treat a comment or a string mentioning @tailwindcss/vite as the plugin", () => {
+    const commented = withTailwindPlugin(
+      `${VITE}// TODO: import tailwindcss from "@tailwindcss/vite";\nexport default defineConfig({\n  plugins: [],\n});\n`,
+    );
+    expect(commented).toContain("plugins: [tailwindcss()]");
+    const inString = withTailwindPlugin(`${VITE}const note = \`plugins: [\`;\nexport default defineConfig({});\n`);
+    expect(inString).toContain("defineConfig({\n  plugins: [tailwindcss()],});");
+    expect(inString).toContain("const note = `plugins: [`;");
+  });
+
+  it("extends the top-level plugins array, not a nested one", () => {
+    const out = withTailwindPlugin(
+      `${VITE}export default defineConfig({\n  build: { rollupOptions: { plugins: [visualizer()] } },\n  plugins: [sibu()],\n});\n`,
+    );
+    expect(out).toContain("rollupOptions: { plugins: [visualizer()] }");
+    expect(out).toContain("plugins: [tailwindcss(), sibu()]");
+  });
+
+  it("adds a top-level plugins key when only a nested one exists", () => {
+    const out = withTailwindPlugin(`${VITE}export default defineConfig({\n  worker: { plugins: () => [] },\n});\n`);
+    expect(out).toContain("defineConfig({\n  plugins: [tailwindcss()],\n  worker: { plugins: () => [] },");
+  });
+
+  it("falls back to instructions for configs it cannot edit with certainty", () => {
+    expect(withTailwindPlugin(`${VITE}export default defineConfig({ plugins: getPlugins() });\n`)).toBeNull();
+    expect(withTailwindPlugin(`${VITE}export default defineConfig(({ mode }) => ({ plugins: [] }));\n`)).toBeNull();
+    expect(withTailwindPlugin(`${VITE}export default defineConfig({ "plugins": [] });\n`)).toBeNull();
+    expect(withTailwindPlugin(`${VITE}/* unterminated\nexport default defineConfig({});\n`)).toBeNull();
+    expect(withTailwindPlugin('import tailwindcss from "@tailwindcss/vite";\nexport default {};\n')).toBeUndefined();
+  });
+
+  it("adds the alias when resolve or the alias only appear in comments", () => {
+    writeProject(tmp, {
+      "tsconfig.json": JSON.stringify({ compilerOptions: { paths: { "@/*": ["./src/*"] } } }),
+      "vite.config.ts": `${VITE}export default defineConfig({\n  // resolve: { alias: { "@": "./src" } },\n  ssr: { resolve: { conditions: [] } },\n});\n`,
+    });
+    const plan = emptyPlan();
+    planAlias(tmp, "@", "src", plan);
+    expect(plan.manual).toEqual([]);
+    expect(plan.changes[0].content).toContain(
+      'defineConfig({\n  resolve: {\n    alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },\n  },\n  // resolve:',
+    );
+    expect(plan.changes[0].content).toContain('import { fileURLToPath } from "node:url";');
+  });
+
+  it("gives instructions when a top-level resolve already exists", () => {
+    writeProject(tmp, {
+      "tsconfig.json": JSON.stringify({ compilerOptions: { paths: { "@/*": ["./src/*"] } } }),
+      "vite.config.ts": `${VITE}export default defineConfig({\n  resolve: { dedupe: ["sibujs"] },\n});\n`,
+    });
+    const plan = emptyPlan();
+    planAlias(tmp, "@", "src", plan);
+    expect(plan.changes).toEqual([]);
+    expect(plan.manual[0]).toContain("Add the import alias to vite.config.ts");
+  });
+
+  it("masks comments, strings and regex literals without moving anything", () => {
+    const source = 'const a = "x // y"; // plugins: [\nconst r = /["\']/g; /* resolve: */ const t = `${b}`;';
+    const masked = maskSource(source, { strings: true })!;
+    expect(masked).toHaveLength(source.length);
+    expect(masked).not.toMatch(/plugins|resolve|x \/\/ y/);
+    expect(masked.split("\n")).toHaveLength(2);
+    expect(maskSource("const s = 'open\n';", { strings: true })).toBeNull();
+  });
+});
+
+describe("aliasForDirectory", () => {
+  it("maps a directory through the configured alias roots and tsconfig paths", () => {
+    writeProject(tmp, { "tsconfig.json": JSON.stringify({ compilerOptions: { paths: { "~/*": ["./app/*"] } } }) });
+    const config = resolveConfig(tmp, createDefaultConfig(tmp));
+    expect(aliasForDirectory(config, "src/widgets")).toBe("@/widgets");
+    expect(aliasForDirectory(config, "src")).toBe("@");
+    expect(aliasForDirectory(config, "app/ui")).toBe("~/ui");
+    expect(aliasForDirectory(config, "widgets")).toBeUndefined();
   });
 });
 

@@ -215,6 +215,43 @@ export function resolveConfig(root: string, raw: ComponentsJson): ProjectConfig 
   };
 }
 
+/**
+ * The import specifier that reaches `dir` (relative to the root), using the
+ * alias roots the project already has: each configured alias/path pair
+ * (`@/components/ui` ↔ `src/components/ui` means `@` ↔ `src`) and every
+ * tsconfig `paths` wildcard. `undefined` when no alias reaches it.
+ */
+export function aliasForDirectory(config: ProjectConfig, dir: string): string | undefined {
+  const target = normalizeRel(dir);
+  const roots: [alias: string, dir: string][] = [];
+  for (const [alias, where] of [
+    [config.aliases.ui, config.paths.ui],
+    [config.aliases.lib, config.paths.lib],
+  ]) {
+    const a = alias.split("/");
+    const d = where === "." ? [] : where.split("/");
+    // Drop the trailing segments both share; what remains is the alias root.
+    while (a.length > 1 && d.length > 0 && a[a.length - 1] === d[d.length - 1]) {
+      a.pop();
+      d.pop();
+    }
+    roots.push([a.join("/"), d.length === 0 ? "." : d.join("/")]);
+  }
+  const tsPaths = readTsconfigPaths(config.root);
+  for (const [pattern, targets] of Object.entries(tsPaths?.paths ?? {})) {
+    const first = Array.isArray(targets) ? targets[0] : undefined;
+    if (pattern.endsWith("/*") && typeof first === "string" && first.endsWith("/*")) {
+      roots.push([pattern.slice(0, -2), normalizeRel(path.posix.join(tsPaths!.baseDir, first.slice(0, -2)))]);
+    }
+  }
+  for (const [alias, base] of roots) {
+    if (base === ".") return target === "." ? alias : `${alias}/${target}`;
+    if (target === base) return alias;
+    if (target.startsWith(`${base}/`)) return `${alias}/${target.slice(base.length + 1)}`;
+  }
+  return undefined;
+}
+
 function normalizeRel(p: string): string {
   const normalized = path.posix.normalize(p.replaceAll("\\", "/")).replace(/^\.\//, "").replace(/\/+$/, "");
   return normalized === "" ? "." : normalized;

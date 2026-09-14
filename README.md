@@ -163,9 +163,18 @@ What it does, skipping anything already in place:
    (`cn()`, `cnReactive()`) and `theme-<style>` for a non-default style.
 6. Installs the npm dependencies with the project's package manager.
 
-Config files are only edited when the edit is unambiguous. A tsconfig with
-comments, or a Vite config without a `defineConfig({ … })` call, is left as it
-is and `init` prints the exact lines to add instead.
+Config files are only edited when the edit is unambiguous. The Vite config is
+read with comments and strings masked out, so a commented-out `// plugins: []`
+or a comment mentioning `@tailwindcss/vite` is never mistaken for the real
+thing, and only top-level keys of the `defineConfig({ … })` or
+`export default { … }` object are touched (never `build.rollupOptions.plugins`).
+A tsconfig with comments, a function-form config, `plugins: somePlugins()`, or
+an existing `resolve` block is left as it is, and `init` prints the exact lines
+to add instead.
+
+`--registry` is recorded in `components.json`, also when the file already
+exists, so later `add` runs read from the same place. Without the flag, the
+recorded value is kept, including through `--force`.
 
 | Flag                  | Description                                                                         |
 | --------------------- | ----------------------------------------------------------------------------------- |
@@ -240,11 +249,27 @@ aliases work without editing anything by hand.
 | `--all`               | Add every component in the registry                                                  |
 | `--overwrite`         | Replace files that exist and differ, without asking                                  |
 | `-y, --yes`           | Never prompt: keep conflicting files, and run `init` with defaults if there is no `components.json` |
-| `-p, --path <dir>`    | Put the components in this directory instead of `paths.ui`                           |
+| `-p, --path <dir>`    | Put the components in this directory instead of `paths.ui` (see below)               |
 | `--dry-run`           | Print what would be written and installed, and write nothing                         |
 | `--no-install`        | Print the install command instead of running it                                      |
 | `--registry <source>` | Registry to read from (see [Registries](#registries))                                |
 | `--cwd <dir>`         | Project directory                                                                    |
+
+#### Installing somewhere else with `--path`
+
+Components import each other through the ui alias, so `--path` moves the alias
+with the files. The directory must be reachable through an alias root the
+project already has — the one in `components.json` (`@` ↔ `src`) or any
+tsconfig `paths` wildcard:
+
+```bash
+sibujs add dialog --path src/widgets
+# src/widgets/dialog.ts: import { Button } from "@/widgets/button";
+```
+
+A directory no alias reaches (for example `widgets/` at the project root, with
+`@/*` pointing at `src/*`) is refused before anything is written. To use such a
+directory permanently, set `aliases.ui` and `paths.ui` in `components.json`.
 
 #### Existing files are never lost silently
 
@@ -386,7 +411,9 @@ Registry content is treated as untrusted input: item names must be lowercase
 words joined by hyphens, file paths must be plain paths under `ui/`, `lib/` or
 `styles/` and are checked to land inside their configured directory, and npm
 dependency specs are validated against a strict character allowlist before they
-reach the package manager. An item that fails any check is refused before
+reach the package manager. Package names may not start with `-`, so an entry
+such as `--ignore-scripts` can never act as a package-manager option; with npm,
+the packages are additionally passed after `--`. An item that fails any check is refused before
 anything is written.
 
 ### `sibujs dev`

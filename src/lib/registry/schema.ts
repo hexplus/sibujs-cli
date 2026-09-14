@@ -52,7 +52,12 @@ export interface RegistryIndex {
   items: RegistryIndexItem[];
 }
 
-const NPM_NAME = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
+/**
+ * An npm package name. The first character of the scope and of the name may
+ * not be `-`: `--global` or `--ignore-scripts` would otherwise reach the
+ * package manager as an option instead of a package.
+ */
+const NPM_NAME = /^(?:@[a-z0-9~][a-z0-9-._~]*\/)?[a-z0-9~][a-z0-9-._~]*$/;
 /**
  * Version ranges as the registry writes them (`^0.7.1`, `>=3.2.0 <5.0.0`).
  * Deliberately excludes every character a shell gives meaning to inside double

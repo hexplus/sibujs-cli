@@ -1,7 +1,13 @@
 import path from "node:path";
 import pc from "picocolors";
 import prompts from "prompts";
-import { CONFIG_FILE, type ProjectConfig, readConfigFile, resolveConfig } from "../lib/registry/config.js";
+import {
+  aliasForDirectory,
+  CONFIG_FILE,
+  type ProjectConfig,
+  readConfigFile,
+  resolveConfig,
+} from "../lib/registry/config.js";
 import { CliError } from "../lib/registry/errors.js";
 import { canPrompt, importHint, installItems } from "../lib/registry/install.js";
 import { ITEM_NAME } from "../lib/registry/schema.js";
@@ -51,7 +57,17 @@ export async function add(names: string[], options: AddOptions = {}, context: Co
     if (ui === "" || ui.startsWith("..") || path.isAbsolute(ui)) {
       throw new CliError(`--path ${options.path} must be a directory inside the project (${root}).`);
     }
-    config = { ...config, paths: { ...config.paths, ui } };
+    // Components import each other through the ui alias, so moving the files
+    // without moving the alias would leave `dialog` importing a `button` that
+    // is not there.
+    const alias = aliasForDirectory(config, ui);
+    if (!alias) {
+      throw new CliError(
+        `--path ${options.path} is not reachable through an import alias, so copied components could not import each other.`,
+        `Pick a directory under one of your alias roots (for example ${config.paths.ui.split("/")[0]}/…), or set "aliases.ui" and "paths.ui" in ${CONFIG_FILE}.`,
+      );
+    }
+    config = { ...config, aliases: { ...config.aliases, ui: alias }, paths: { ...config.paths, ui } };
   }
 
   const source = pickRegistry({ flag: options.registry, config: config.registry, cwd, root });

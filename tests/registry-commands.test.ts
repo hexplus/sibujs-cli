@@ -100,6 +100,24 @@ describe("sibujs init", () => {
     await init({ ...base(), force: true }, { log });
     expect(JSON.parse(read(root, "components.json")).style).toBe("default");
   });
+
+  it("records an explicit --registry in an existing components.json", async () => {
+    await init(base(), { log });
+    const second = writeRegistry(path.join(tmp, "registry-2"));
+    await init({ ...base(), registry: second }, { log });
+    const config = JSON.parse(read(root, "components.json"));
+    expect(config.registry).toBe("../registry-2");
+    expect(config.style).toBe("default");
+    expect(output()).toContain("updated components.json (style: default, registry: ../registry-2)");
+  });
+
+  it("keeps the recorded registry through --force when no --registry is given", async () => {
+    await init(base(), { log });
+    await init({ cwd: root, install: false, yes: true, force: true, style: "blue" }, { log });
+    const config = JSON.parse(read(root, "components.json"));
+    expect(config.registry).toBe("../registry");
+    expect(config.style).toBe("blue");
+  });
 });
 
 describe("sibujs add", () => {
@@ -198,9 +216,22 @@ describe("sibujs add", () => {
     expect(exists(root, "src/components/ui/dialog.ts")).toBe(true);
   });
 
-  it("installs into --path", async () => {
-    await add(["button"], { ...base(), path: path.join(root, "src/widgets") }, { log });
+  it("installs into --path with imports that resolve there", async () => {
+    await add(["dialog"], { ...base(), path: path.join(root, "src/widgets") }, { log });
     expect(exists(root, "src/widgets/button.ts")).toBe(true);
+    const dialog = read(root, "src/widgets/dialog.ts");
+    expect(dialog).toContain('import { Button } from "@/widgets/button";');
+    expect(dialog).not.toContain("@/components/ui");
+    // Library files still come from their own alias.
+    expect(dialog).toContain('from "@/lib/icons"');
+    expect(output()).toContain('import { Dialog } from "@/widgets/dialog";');
+  });
+
+  it("rejects a --path no import alias reaches, or one outside the project", async () => {
+    const before = snapshot(root);
+    const error = await add(["dialog"], { ...base(), path: path.join(root, "widgets") }, { log }).catch((e) => e);
+    expect(error.message).toMatch(/not reachable through an import alias/);
+    expect(snapshot(root)).toEqual(before);
     await expect(add(["button"], { ...base(), path: tmp }, { log })).rejects.toThrow(/inside the project/);
   });
 

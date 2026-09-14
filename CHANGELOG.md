@@ -22,9 +22,12 @@ Tailwind CSS 4 (dependencies and the `@tailwindcss/vite` plugin) when the
 project does not have it, creates or detects the stylesheet and adds the style
 `@import` lines, declares the `@/*` alias in tsconfig and in the Vite config,
 and copies the `base` styles, `utils` (`cn()`) and the chosen theme. Config
-files are edited only when the edit is unambiguous; otherwise the exact lines
-to add are printed. Flags: `--style`, `--css`, `--force`, `--overwrite`,
-`--yes`, `--dry-run`, `--no-install`, `--registry`, `--cwd`.
+files are edited only when the edit is unambiguous: the Vite config is scanned
+with comments and strings masked and only top-level keys of the config object
+are changed; anything else gets the exact lines to add. An explicit
+`--registry` is recorded in `components.json` even when the file exists, and a
+recorded registry survives `--force`. Flags: `--style`, `--css`, `--force`,
+`--overwrite`, `--yes`, `--dry-run`, `--no-install`, `--registry`, `--cwd`.
 
 ### Added — `sibujs add <component...>`
 
@@ -35,7 +38,9 @@ files and installs missing npm packages with the project's package manager
 exist and differ are never replaced silently: `--overwrite` replaces them, an
 interactive terminal asks per file before anything is written, and anywhere
 else they are kept and reported. Unknown names get "did you mean"
-suggestions. Flags: `--all`, `--overwrite`, `--yes`, `--path`, `--dry-run`,
+suggestions. `--path` moves the ui import alias along with the files, so
+components that import each other still resolve, and refuses a directory no
+alias reaches. Flags: `--all`, `--overwrite`, `--yes`, `--path`, `--dry-run`,
 `--no-install`, `--registry`, `--cwd`.
 
 ### Added — `sibujs list`
@@ -59,7 +64,9 @@ directory, a base URL or a `{name}` URL template. Redirecting base URLs are
 pinned to their target for the rest of the run; requests time out after 15
 seconds and retry on network errors and 5xx. Item names, file paths, CSS
 imports and dependency specs from the registry are validated before use, and
-every write is checked to stay inside its configured directory.
+every write is checked to stay inside its configured directory. Package names
+may not start with `-`, so no registry entry can pass an option to the package
+manager; npm additionally receives the packages after `--`.
 
 ### Unchanged
 

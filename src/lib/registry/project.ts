@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { declaredDependencies } from "./dependencies.js";
 import { formatJson, parseJsonc } from "./jsonc.js";
+import { findTopLevelKey, maskSource } from "./source-text.js";
 
 /**
  * Project wiring for `sibujs init`: Tailwind CSS, the stylesheet, and the
@@ -66,18 +67,43 @@ export function declaredTailwindMajor(root: string): number | undefined | null {
   return match ? Number(match[1]) : null;
 }
 
-/** Insert `line` after the last top-level import, or at the top. */
-function addImport(source: string, line: string): string {
-  // From `import` to the end of its module specifier, across lines for
-  // multi-line named imports; `import(` (a dynamic import) never matches.
-  const imports = [...source.matchAll(/^import[\s{*"'][\s\S]*?["'][^"'\n]*["'];?[ \t]*$/gm)];
+/**
+ * Insert `line` after the last top-level import, or at the top. `null` when
+ * the source cannot be scanned with confidence.
+ */
+function addImport(source: string, line: string): string | null {
+  // Strings are blanked but keep their quotes, so the pattern still sees
+  // module specifiers while an `import` inside a comment or a template never
+  // matches. Spans multi-line named imports; `import(` never matches.
+  const code = maskSource(source, { strings: true });
+  if (code === null) return null;
+  const imports = [...code.matchAll(/^import[\s{*"'][\s\S]*?["'][^"'\n]*["'];?[ \t]*$/gm)];
   const last = imports.at(-1);
   if (!last) return `${line}\n${source}`;
   const at = (last.index ?? 0) + last[0].length;
   return `${source.slice(0, at)}\n${line}${source.slice(at)}`;
 }
 
-const CONFIG_OPEN = /defineConfig\(\s*\{/;
+/** `defineConfig({` or `export default {`: the config object Vite reads. */
+const CONFIG_OPEN = /(?:\bdefineConfig\(\s*|\bexport\s+default\s+)\{/;
+
+interface ViteSource {
+  source: string;
+  /** Comments and string contents blanked. */
+  code: string;
+  /** Comments blanked, strings intact. */
+  noComments: string;
+  /** Index of the config object's `{`, or -1. */
+  open: number;
+}
+
+function scanVite(source: string): ViteSource | null {
+  const code = maskSource(source, { strings: true });
+  const noComments = maskSource(source, { strings: false });
+  if (code === null || noComments === null) return null;
+  const match = CONFIG_OPEN.exec(code);
+  return { source, code, noComments, open: match ? match.index + match[0].length - 1 : -1 };
+}
 
 export function planTailwind(root: string, plan: SetupPlan): void {
   const major = declaredTailwindMajor(root);
@@ -103,23 +129,44 @@ export function planTailwind(root: string, plan: SetupPlan): void {
     return;
   }
 
-  const source = pendingContent(plan, viteFile) ?? fs.readFileSync(viteFile, "utf-8");
-  if (source.includes("@tailwindcss/vite")) return;
-  let next = addImport(source, 'import tailwindcss from "@tailwindcss/vite";');
-  const plugins = /plugins\s*:\s*\[/.exec(next);
-  if (plugins) {
-    const at = plugins.index + plugins[0].length;
-    const empty = /^\s*\]/.test(next.slice(at));
-    next = `${next.slice(0, at)}${empty ? "tailwindcss()" : "tailwindcss(), "}${next.slice(at).replace(empty ? /^\s*/ : /^/, "")}`;
-  } else if (CONFIG_OPEN.test(next)) {
-    next = next.replace(CONFIG_OPEN, (open) => `${open}\n  plugins: [tailwindcss()],`);
-  } else {
+  const next = withTailwindPlugin(pendingContent(plan, viteFile) ?? fs.readFileSync(viteFile, "utf-8"));
+  if (next === null) {
     plan.manual.push(
       `Add the Tailwind CSS plugin to ${display(root, viteFile)}:\n    import tailwindcss from "@tailwindcss/vite";\n    plugins: [tailwindcss()]`,
     );
-    return;
+  } else if (next !== undefined) {
+    setChange(plan, viteFile, display(root, viteFile), next, "add the @tailwindcss/vite plugin");
   }
-  setChange(plan, viteFile, display(root, viteFile), next, "add the @tailwindcss/vite plugin");
+}
+
+/**
+ * The Vite config with `tailwindcss()` in the top-level `plugins` array:
+ * `undefined` when the plugin is already imported, `null` when the config is
+ * not one this can edit with certainty.
+ */
+export function withTailwindPlugin(source: string): string | null | undefined {
+  const vite = scanVite(source);
+  if (!vite) return null;
+  // Only a real import counts; a mention in a comment does not.
+  if (/["']@tailwindcss\/vite["']/.test(vite.noComments)) return undefined;
+  if (vite.open === -1 || /["']plugins["']\s*:/.test(vite.noComments)) return null;
+
+  const { value, close } = findTopLevelKey(vite.code, vite.open, "plugins");
+  if (close === -1) return null;
+  let body: string;
+  if (value !== -1) {
+    const bracket = /^\s*\[/.exec(vite.code.slice(value));
+    // `plugins: somePlugins()` or a variable: not an array literal to extend.
+    if (!bracket) return null;
+    const at = value + bracket[0].length;
+    const empty = /^\s*\]/.test(vite.code.slice(at));
+    body = empty
+      ? `${source.slice(0, at)}tailwindcss()${source.slice(at).replace(/^\s*/, "")}`
+      : `${source.slice(0, at)}tailwindcss(), ${source.slice(at)}`;
+  } else {
+    body = `${source.slice(0, vite.open + 1)}\n  plugins: [tailwindcss()],${source.slice(vite.open + 1)}`;
+  }
+  return addImport(body, 'import tailwindcss from "@tailwindcss/vite";');
 }
 
 /**
@@ -152,8 +199,13 @@ export function planStylesheet(root: string, requested: string | undefined, plan
   if (!specifier.startsWith(".")) specifier = `./${specifier}`;
   if (entry) {
     const source = fs.readFileSync(entry, "utf-8");
-    if (!source.includes(specifier)) {
-      setChange(plan, entry, display(root, entry), addImport(source, `import "${specifier}";`), `import ${rel}`);
+    const noComments = maskSource(source, { strings: false });
+    const imported = noComments !== null && new RegExp(`import\\s+["']${escapeRegExp(specifier)}["']`).test(noComments);
+    const next = imported ? source : addImport(source, `import "${specifier}";`);
+    if (next === null) {
+      plan.manual.push(`Import ${rel} from your entry module: import "${specifier}";`);
+    } else if (next !== source) {
+      setChange(plan, entry, display(root, entry), next, `import ${rel}`);
     }
   } else {
     plan.manual.push(`Import ${rel} from your entry module: import "${specifier}";`);
@@ -202,27 +254,40 @@ export function planAlias(root: string, prefix: string, dir: string, plan: Setup
 
   const viteFile = findViteConfig(root);
   if (!viteFile) return;
-  const source = pendingContent(plan, viteFile) ?? fs.readFileSync(viteFile, "utf-8");
   const dirUrl = dir === "." ? "./" : `./${dir}`;
   const snippet = `resolve: {\n    alias: { "${prefix}": fileURLToPath(new URL("${dirUrl}", import.meta.url)) },\n  },`;
-  if (
-    new RegExp(`["']${escapeRegExp(prefix)}["']\\s*:`).test(source) ||
-    source.includes(`find: "${prefix}"`) ||
-    source.includes("vite-tsconfig-paths")
-  ) {
-    return;
-  }
-  if (/\bresolve\s*:/.test(source) || !CONFIG_OPEN.test(source)) {
+  const next = withAlias(pendingContent(plan, viteFile) ?? fs.readFileSync(viteFile, "utf-8"), prefix, snippet);
+  if (next === null) {
     plan.manual.push(
       `Add the import alias to ${display(root, viteFile)}:\n    import { fileURLToPath } from "node:url";\n    ${snippet}`,
     );
-    return;
+  } else if (next !== undefined) {
+    setChange(plan, viteFile, display(root, viteFile), next, `alias "${prefix}" → ${dirUrl}`);
   }
-  let next = source.replace(CONFIG_OPEN, (open) => `${open}\n  ${snippet}`);
-  if (!/\bfileURLToPath\b.*from\s+["'](?:node:)?url["']/.test(source)) {
-    next = addImport(next, 'import { fileURLToPath } from "node:url";');
+}
+
+/**
+ * The Vite config with a top-level `resolve` holding the alias: `undefined`
+ * when the alias is already declared, `null` when the config is not one this
+ * can edit with certainty (including an existing `resolve` to merge into).
+ */
+function withAlias(source: string, prefix: string, snippet: string): string | null | undefined {
+  const vite = scanVite(source);
+  if (!vite) return null;
+  if (
+    new RegExp(`["']${escapeRegExp(prefix)}["']\\s*:`).test(vite.noComments) ||
+    new RegExp(`find\\s*:\\s*["']${escapeRegExp(prefix)}["']`).test(vite.noComments) ||
+    /["']vite-tsconfig-paths["']/.test(vite.noComments)
+  ) {
+    return undefined;
   }
-  setChange(plan, viteFile, display(root, viteFile), next, `alias "${prefix}" → ${dirUrl}`);
+  if (vite.open === -1 || /["']resolve["']\s*:/.test(vite.noComments)) return null;
+  const { value, close } = findTopLevelKey(vite.code, vite.open, "resolve");
+  if (close === -1 || value !== -1) return null;
+
+  const next = `${source.slice(0, vite.open + 1)}\n  ${snippet}${source.slice(vite.open + 1)}`;
+  if (/\bfileURLToPath\b[^;]*from\s+["'](?:node:)?url["']/.test(vite.noComments)) return next;
+  return addImport(next, 'import { fileURLToPath } from "node:url";');
 }
 
 function escapeRegExp(s: string): string {

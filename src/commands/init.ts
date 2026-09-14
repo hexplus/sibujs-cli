@@ -99,14 +99,19 @@ export async function init(options: InitOptions = {}, context: CommandContext = 
   if (options.dryRun) log(pc.yellow("Dry run — nothing will be written."));
 
   const setup: SetupPlan = { changes: [], manual: [], warnings: [], dependencies: [], devDependencies: [] };
+  // An explicit --registry is recorded; otherwise whatever the file already
+  // had survives, including through --force, so the next `add` reads from
+  // the same place this run did.
+  const registryValue = options.registry ? storedRegistry(root, options.registry, source.location) : existing?.registry;
   let raw: ComponentsJson;
   if (keep) {
     raw = { ...existing };
     if (options.style && options.style !== existing?.style) raw.style = options.style;
+    if (registryValue !== existing?.registry) raw.registry = registryValue;
     log(pc.dim(`= ${CONFIG_FILE} exists; keeping it (--force to regenerate)`));
   } else {
     const css = planStylesheet(root, options.css, setup);
-    raw = createDefaultConfig(root, { style, css, registry: storedRegistry(root, options.registry, source.location) });
+    raw = createDefaultConfig(root, { style, css, registry: registryValue });
   }
 
   const config = resolveConfig(root, raw);
@@ -114,13 +119,15 @@ export async function init(options: InitOptions = {}, context: CommandContext = 
   planTailwind(root, setup);
   planAliasFor(config, setup);
 
-  if (!keep || raw.style !== existing?.style) {
+  if (!keep || JSON.stringify(raw) !== JSON.stringify(existing)) {
+    const summary = [`style: ${config.style}`];
+    if (raw.registry !== undefined) summary.push(`registry: ${raw.registry}`);
     setup.changes.unshift({
       file: configPath(root),
       display: CONFIG_FILE,
       content: `${JSON.stringify(raw, null, 2)}\n`,
       created: !existing,
-      summary: `style: ${config.style}`,
+      summary: summary.join(", "),
     });
   }
 

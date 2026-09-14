@@ -1,0 +1,21 @@
+# Every text file is stored and checked out with LF, on every platform.
+# Biome formats with LF; without this, Windows checkouts (core.autocrlf=true,
+# the default on GitHub's Windows runners) get CRLF and `npm run lint` fails.
+* text=auto eol=lf
+
+# Binary formats scaffolded templates may contain; never touch their bytes.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.avif binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.otf binary
+*.zip binary
+*.gz binary
+*.tgz binary

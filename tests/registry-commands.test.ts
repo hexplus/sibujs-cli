@@ -228,12 +228,18 @@ describe("sibujs add", () => {
   });
 
   it("resolves a relative --path against --cwd, not the process directory", async () => {
-    // Both relative, exactly as typed: `sibujs add dialog --cwd <app> --path src/widgets`.
-    const cwd = path.relative(process.cwd(), root);
-    expect(path.isAbsolute(cwd)).toBe(false);
-    await add(["dialog"], { ...base(), cwd, path: "src/widgets" }, { log });
+    // Both relative, exactly as typed: `sibujs add dialog --cwd app --path src/widgets`.
+    // Run from the temp directory so the relative --cwd never crosses drives
+    // (CI checkouts and the OS temp dir can live on different Windows drives).
+    const original = process.cwd();
+    process.chdir(tmp);
+    try {
+      await add(["dialog"], { ...base(), cwd: "app", path: "src/widgets" }, { log });
+    } finally {
+      process.chdir(original);
+    }
     expect(read(root, "src/widgets/dialog.ts")).toContain('import { Button } from "@/widgets/button";');
-    expect(fs.existsSync(path.join(process.cwd(), "src/widgets"))).toBe(false);
+    expect(fs.existsSync(path.join(tmp, "src/widgets"))).toBe(false);
   });
 
   it("never invents an alias from the shape of aliases.ui", async () => {

@@ -23,9 +23,11 @@ project does not have it, creates or detects the stylesheet and adds the style
 `@import` lines, declares the `@/*` alias in tsconfig and in the Vite config,
 and copies the `base` styles, `utils` (`cn()`) and the chosen theme. Config
 files are edited only when the edit is unambiguous: the Vite config is read
-structurally (real imports, the top-level config keys and `resolve.alias`, never
-comments or strings) and only top-level keys of the config object are changed;
-anything else gets the exact lines to add. An explicit
+structurally — only the object after the single `export default` is the
+configuration, a plugin counts only when its imported binding is called in that
+object's top-level `plugins` array, and comments or strings never count — and
+only top-level keys of that object are changed; anything else gets the exact
+lines to add. An explicit
 `--registry` is recorded in `components.json` even when the file exists, and a
 recorded registry survives `--force`. Flags: `--style`, `--css`, `--force`,
 `--overwrite`, `--yes`, `--dry-run`, `--no-install`, `--registry`, `--cwd`.

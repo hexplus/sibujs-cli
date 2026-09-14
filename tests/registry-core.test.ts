@@ -401,7 +401,7 @@ describe("Vite config edits ignore comments and strings", () => {
     expect(withTailwindPlugin(`${VITE}export default defineConfig(({ mode }) => ({ plugins: [] }));\n`)).toBeNull();
     expect(withTailwindPlugin(`${VITE}export default defineConfig({ ...base, mode: "x" });\n`)).toBeNull();
     expect(withTailwindPlugin(`${VITE}/* unterminated\nexport default defineConfig({});\n`)).toBeNull();
-    expect(withTailwindPlugin('import tailwindcss from "@tailwindcss/vite";\nexport default {};\n')).toBeUndefined();
+    expect(withTailwindPlugin('import "@tailwindcss/vite";\nexport default { plugins: [] };\n')).toBeNull();
   });
 
   it("adds the alias when resolve or the alias only appear in comments", () => {
@@ -465,6 +465,87 @@ describe("aliasForDirectory", () => {
     const config = resolveConfig(tmp, { aliases: { ui: "@acme/ui" }, paths: { ui: "src/components/ui", lib: "src/lib" } });
     expect(aliasForDirectory(config, "src/components/widgets")).toBe("@acme/widgets");
     expect(aliasForDirectory(config, "src/widgets")).toBe("@/widgets");
+  });
+});
+
+describe("Vite edits target the exported config and check that plugins are called", () => {
+  const VITE = 'import { defineConfig } from "vite";\n';
+  const aliasPlan = (viteConfig: string) => {
+    writeProject(tmp, {
+      "tsconfig.json": JSON.stringify({ compilerOptions: { paths: { "@/*": ["./src/*"] } } }),
+      "vite.config.ts": viteConfig,
+    });
+    const plan = emptyPlan();
+    planAlias(tmp, "@", "src", plan);
+    return plan;
+  };
+
+  it("edits the exported defineConfig, not an earlier one", () => {
+    const out = withTailwindPlugin(
+      `${VITE}const example = defineConfig({ plugins: [] });\n\nexport default defineConfig({\n  plugins: [sibu()],\n});\n`,
+    );
+    expect(out).toContain("const example = defineConfig({ plugins: [] });");
+    expect(out).toContain("export default defineConfig({\n  plugins: [tailwindcss(), sibu()],\n});");
+
+    const plan = aliasPlan(`${VITE}const base = defineConfig({});\nexport default defineConfig({});\n`);
+    expect(plan.changes[0].content).toContain("const base = defineConfig({});");
+    expect(plan.changes[0].content).toContain("export default defineConfig({\n  resolve: {");
+  });
+
+  it("falls back to instructions when the exported config is not a literal", () => {
+    for (const config of [
+      `${VITE}const config = defineConfig({ plugins: [] });\nexport default config;\n`,
+      `${VITE}export default defineConfig(({ mode }) => ({ plugins: [] }));\n`,
+      `${VITE}const a = defineConfig({ plugins: [] });\n`,
+      `${VITE}module.exports = { plugins: [] };\n`,
+    ]) {
+      expect(withTailwindPlugin(config), config).toBeNull();
+      expect(aliasPlan(config).manual, config).toHaveLength(1);
+    }
+  });
+
+  it("ignores `export default` inside strings and comments", () => {
+    const out = withTailwindPlugin(
+      `${VITE}// export default defineConfig({ plugins: [] })\nconst s = "export default {}";\nexport default { plugins: [] };\n`,
+    );
+    expect(out).toContain("export default { plugins: [tailwindcss()] };");
+  });
+
+  it("adds the call when @tailwindcss/vite is imported but not used, reusing its binding", () => {
+    expect(withTailwindPlugin(`import tailwindcss from "@tailwindcss/vite";\n${VITE}export default defineConfig({ plugins: [] });\n`)).toBe(
+      `import tailwindcss from "@tailwindcss/vite";\n${VITE}export default defineConfig({ plugins: [tailwindcss()] });\n`,
+    );
+    const renamed = withTailwindPlugin(`import tw from "@tailwindcss/vite";\n${VITE}export default defineConfig({});\n`);
+    expect(renamed).toContain("plugins: [tw()],");
+    expect(renamed?.match(/@tailwindcss\/vite/g)).toHaveLength(1);
+    expect(
+      withTailwindPlugin(`import { default as tw } from "@tailwindcss/vite";\n${VITE}export default defineConfig({ plugins: [a()] });\n`),
+    ).toContain("plugins: [tw(), a()]");
+  });
+
+  it("counts the plugin as configured only when its binding is called in the exported plugins", () => {
+    expect(
+      withTailwindPlugin(`import tw from "@tailwindcss/vite";\n${VITE}export default defineConfig({ plugins: [a(), tw({ x: 1 })] });\n`),
+    ).toBeUndefined();
+    // Called only in a non-exported config: still missing from the real one.
+    const out = withTailwindPlugin(
+      `import tw from "@tailwindcss/vite";\n${VITE}const other = defineConfig({ plugins: [tw()] });\nexport default defineConfig({ plugins: [] });\n`,
+    );
+    expect(out).toContain("export default defineConfig({ plugins: [tw()] });");
+  });
+
+  it("gives instructions when the import cannot be amended", () => {
+    expect(withTailwindPlugin(`import * as tw from "@tailwindcss/vite";\n${VITE}export default defineConfig({ plugins: [] });\n`)).toBeNull();
+    expect(withTailwindPlugin(`import tw from "@tailwindcss/vite";\n${VITE}export default defineConfig({ plugins: getPlugins() });\n`)).toBeNull();
+    // Our own `tailwindcss` import would clash with an existing binding.
+    expect(withTailwindPlugin(`${VITE}const tailwindcss = 1;\nexport default defineConfig({ plugins: [] });\n`)).toBeNull();
+  });
+
+  it("adds resolve.alias when vite-tsconfig-paths is imported but not called", () => {
+    const unused = aliasPlan(`import tsconfigPaths from "vite-tsconfig-paths";\n${VITE}export default defineConfig({ plugins: [] });\n`);
+    expect(unused.changes[0].content).toContain('alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) }');
+    const used = aliasPlan(`import paths from "vite-tsconfig-paths";\n${VITE}export default defineConfig({ plugins: [paths()] });\n`);
+    expect(used).toEqual(emptyPlan());
   });
 });
 

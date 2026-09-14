@@ -93,27 +93,78 @@ function addImport(source: string, line: string): string | null {
   return `${source.slice(0, at)}\n${line}${source.slice(at)}`;
 }
 
-/** `defineConfig({` or `export default {`: the config object Vite reads. */
-const CONFIG_OPEN = /(?:\bdefineConfig\(\s*|\bexport\s+default\s+)\{/;
-
 interface ViteSource {
   /** Comments and string contents blanked, quotes kept. */
   code: string;
   imports: ImportDeclaration[];
-  /** Index of the config object's `{`, or -1. */
+  /** Index of the exported config object's `{`, or -1. */
   open: number;
-  /** Top-level properties of the config object; `null` without one. */
+  /** Top-level properties of the exported config object; `null` without one. */
   config: ObjectLiteral | null;
 }
 
+/**
+ * Only the exported object is the configuration Vite reads: another
+ * `defineConfig({ … })` elsewhere in the file (an example, a shared base) is
+ * not. The file must have exactly one `export default`, directly followed by
+ * `defineConfig({` or `{`; a function form, an exported variable or anything
+ * else leaves `open` at -1, and callers print instructions.
+ */
 function scanVite(source: string): ViteSource | null {
   const code = maskSource(source, { strings: true });
   if (code === null) return null;
-  const match = CONFIG_OPEN.exec(code);
-  const open = match ? match.index + match[0].length - 1 : -1;
+  const exports = [...code.matchAll(/(?<![\w$.])export\s+default(?![\w$])/g)];
+  let open = -1;
+  if (exports.length === 1) {
+    const at = exports[0].index ?? 0;
+    const literal = /^export\s+default\s+(?:defineConfig\s*\(\s*)?\{/.exec(code.slice(at));
+    if (literal) open = at + literal[0].length - 1;
+  }
   const config = open === -1 ? null : readObject(code, source, open);
   return { code, imports: readImports(code, source), open, config };
 }
+
+/**
+ * The local name `specifier` is default-imported as (`import tw from …`,
+ * `import { default as tw } from …`). `undefined` when it is not imported;
+ * `null` when it is imported in a form whose binding cannot be used as a
+ * plugin call (side effect only, namespace, `require`).
+ */
+function defaultImportName(vite: ViteSource, specifier: string): string | null | undefined {
+  const matches = vite.imports.filter((i) => i.specifier === specifier);
+  if (matches.length === 0) return undefined;
+  for (const { clause } of matches) {
+    const renamed = /\bdefault\s+as\s+([A-Za-z_$][\w$]*)/.exec(clause);
+    if (renamed) return renamed[1];
+    const plain = /^([A-Za-z_$][\w$]*)\s*(?:,|$)/.exec(clause);
+    if (plain && plain[1] !== "type") return plain[1];
+  }
+  return null;
+}
+
+/**
+ * The exported config's top-level `plugins` array: its `[` index, `"absent"`
+ * when there is no `plugins` key to worry about, or `null` when it cannot be
+ * edited with certainty (no exported object, a spread that may hold plugins,
+ * or a value that is not an array literal).
+ */
+function pluginsArray(vite: ViteSource): number | "absent" | null {
+  if (!vite.config) return null;
+  const value = vite.config.keys.get("plugins");
+  if (value === undefined) return vite.config.opaque ? null : "absent";
+  const literal = literalAt(vite.code, value);
+  return literal?.kind === "[" ? literal.open : null;
+}
+
+/** Whether an element of the plugins array at `open` calls `name(…)`. */
+function callsPlugin(vite: ViteSource, open: number, name: string): boolean {
+  const call = new RegExp(`^${escapeRegExp(name)}\\s*\\(`);
+  return (readArray(vite.code, open) ?? []).some((element) => call.test(vite.code.slice(element)));
+}
+
+/** Whether `name` is already used as an identifier anywhere in the code. */
+const usesIdentifier = (vite: ViteSource, name: string) =>
+  new RegExp(`(?<![\\w$.])${escapeRegExp(name)}(?![\\w$])`).test(vite.code);
 
 /** An object or array literal as a property value, or `undefined` for anything else. */
 function literalAt(code: string, index: number): { kind: "{" | "["; open: number } | undefined {
@@ -156,34 +207,38 @@ export function planTailwind(root: string, plan: SetupPlan): void {
 }
 
 /**
- * The Vite config with `tailwindcss()` in the top-level `plugins` array:
- * `undefined` when the plugin is already imported, `null` when the config is
+ * The Vite config with the Tailwind plugin called in the exported top-level
+ * `plugins` array: `undefined` when it already is, `null` when the config is
  * not one this can edit with certainty.
+ *
+ * An import alone configures nothing. When `@tailwindcss/vite` is imported but
+ * its binding is not called in `plugins`, the call is added using the existing
+ * binding; an import whose binding cannot be called (side effect only,
+ * namespace, `require`) gets instructions instead.
  */
 export function withTailwindPlugin(source: string): string | null | undefined {
   const vite = scanVite(source);
   if (!vite) return null;
-  // Only a real import counts; a comment or a string naming the package does not.
-  if (vite.imports.some((i) => i.specifier === "@tailwindcss/vite")) return undefined;
-  if (!vite.config) return null;
+  const binding = defaultImportName(vite, "@tailwindcss/vite");
+  if (binding === null) return null;
+  const plugins = pluginsArray(vite);
+  if (plugins === null) return null;
+  if (binding && plugins !== "absent" && callsPlugin(vite, plugins, binding)) return undefined;
+  // Adding our own import must not shadow an unrelated `tailwindcss`.
+  if (!binding && usesIdentifier(vite, "tailwindcss")) return null;
 
-  const value = vite.config.keys.get("plugins");
-  // A spread or shorthand could already hold `plugins`; do not add a second one.
-  if (value === undefined && vite.config.opaque) return null;
+  const call = `${binding ?? "tailwindcss"}()`;
   let body: string;
-  if (value !== undefined) {
-    const literal = literalAt(vite.code, value);
-    // `plugins: somePlugins()` or a variable: not an array literal to extend.
-    if (literal?.kind !== "[") return null;
-    const at = literal.open + 1;
+  if (plugins !== "absent") {
+    const at = plugins + 1;
     const empty = /^\s*\]/.test(vite.code.slice(at));
     body = empty
-      ? `${source.slice(0, at)}tailwindcss()${source.slice(at).replace(/^\s*/, "")}`
-      : `${source.slice(0, at)}tailwindcss(), ${source.slice(at)}`;
+      ? `${source.slice(0, at)}${call}${source.slice(at).replace(/^\s*/, "")}`
+      : `${source.slice(0, at)}${call}, ${source.slice(at)}`;
   } else {
-    body = `${source.slice(0, vite.open + 1)}\n  plugins: [tailwindcss()],${source.slice(vite.open + 1)}`;
+    body = `${source.slice(0, vite.open + 1)}\n  plugins: [${call}],${source.slice(vite.open + 1)}`;
   }
-  return addImport(body, 'import tailwindcss from "@tailwindcss/vite";');
+  return binding ? body : addImport(body, 'import tailwindcss from "@tailwindcss/vite";');
 }
 
 /**
@@ -291,8 +346,12 @@ export function planAlias(root: string, prefix: string, dir: string, plan: Setup
 function withAlias(source: string, prefix: string, snippet: string): string | null | undefined {
   const vite = scanVite(source);
   if (!vite) return null;
-  // vite-tsconfig-paths resolves the tsconfig alias itself.
-  if (vite.imports.some((i) => i.specifier === "vite-tsconfig-paths")) return undefined;
+  // vite-tsconfig-paths resolves the tsconfig alias itself, but only when it is
+  // actually called in the exported plugins array. Imported and unused, it
+  // does nothing, and `resolve.alias` below works with or without it.
+  const tsconfigPaths = defaultImportName(vite, "vite-tsconfig-paths");
+  const plugins = pluginsArray(vite);
+  if (tsconfigPaths && typeof plugins === "number" && callsPlugin(vite, plugins, tsconfigPaths)) return undefined;
   if (!vite.config) return null;
 
   const resolve = vite.config.keys.get("resolve");

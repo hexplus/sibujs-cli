@@ -166,15 +166,22 @@ What it does, skipping anything already in place:
 Config files are only edited when the edit is unambiguous. The Vite config is
 read structurally rather than searched as text:
 
-- "already set up" means a real `import` of `@tailwindcss/vite` or
-  `vite-tsconfig-paths`, or the alias key in the top-level `resolve.alias`
-  (object or `[{ find }]` form) — a comment, a string, or an unrelated `"@"`
-  property elsewhere never counts;
-- only top-level keys of the `defineConfig({ … })` or `export default { … }`
-  object are changed, never nested ones such as `build.rollupOptions.plugins`.
+- the configuration is the object after the file's single `export default`
+  (`export default defineConfig({ … })` or `export default { … }`); any other
+  `defineConfig({ … })` in the file is left alone;
+- a plugin counts as set up only when its imported binding is **called** in that
+  object's top-level `plugins` array. An import alone does nothing: if
+  `@tailwindcss/vite` is imported but not used, the call is added with the
+  existing binding (`tw()` for `import tw from …`);
+- the alias counts as set up when the top-level `resolve.alias` has the key
+  (object or `[{ find }]` form), or when `vite-tsconfig-paths` is called in
+  `plugins`. Comments, strings and unrelated `"@"` properties never count;
+- only top-level keys of the exported object are changed, never nested ones
+  such as `build.rollupOptions.plugins`.
 
-A tsconfig with comments, a function-form config, a spread in the config
-object, `plugins: somePlugins()`, or an existing `resolve` block without the
+A tsconfig with comments, an exported variable or function-form config, a
+spread in the config object, `plugins: somePlugins()`, a namespace or
+side-effect import of the plugin, or an existing `resolve` block without the
 alias is left as it is, and `init` prints the exact lines to add instead.
 
 `--registry` is recorded in `components.json`, also when the file already

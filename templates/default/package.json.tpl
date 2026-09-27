@@ -14,7 +14,7 @@
     "sibujs": "^4.4.0"{{SIBUJS_UI_DEP}}{{TAILWIND_DEPS}}
   },
   "devDependencies": {
-    "sibujs-cli": "^1.5.0",
+    "sibujs-cli": "^1.5.1",
     "typescript": "~6.0.0",
     "vite": "^8.0.8"
   },

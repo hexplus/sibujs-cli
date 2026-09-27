@@ -176,11 +176,16 @@ read structurally rather than searched as text:
 - the alias counts as set up when the top-level `resolve.alias` has the key
   (object or `[{ find }]` form), or when `vite-tsconfig-paths` is called in
   `plugins`. Comments, strings and unrelated `"@"` properties never count;
+- the added alias calls `fileURLToPath` through its existing local name
+  (`toPath(…)` for `import { fileURLToPath as toPath } from "node:url"`), and
+  adds the import only when there is none;
 - only top-level keys of the exported object are changed, never nested ones
   such as `build.rollupOptions.plugins`.
 
 A tsconfig with comments, an exported variable or function-form config, a
-spread in the config object, `plugins: somePlugins()`, a namespace or
+spread in the config object (anywhere in it — a spread can override
+`plugins` or `resolve`, so their contents are neither edited nor trusted),
+a computed or shorthand key, `plugins: somePlugins()`, a namespace or
 side-effect import of the plugin, or an existing `resolve` block without the
 alias is left as it is, and `init` prints the exact lines to add instead.
 

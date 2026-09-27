@@ -680,3 +680,102 @@ describe("components.json schema", () => {
     }
   });
 });
+
+describe("Vite edits refuse configs a spread can override, and honour renamed imports", () => {
+  const VITE = 'import { defineConfig } from "vite";\n';
+  const aliasPlan = (viteConfig: string) => {
+    writeProject(tmp, {
+      "tsconfig.json": JSON.stringify({ compilerOptions: { paths: { "@/*": ["./src/*"] } } }),
+      "vite.config.ts": viteConfig,
+    });
+    const plan = emptyPlan();
+    planAlias(tmp, "@", "src", plan);
+    return plan;
+  };
+  const tailwindPlan = (viteConfig: string) => {
+    writeProject(tmp, {
+      "package.json": JSON.stringify({ devDependencies: { tailwindcss: "^4.0.0", "@tailwindcss/vite": "^4.0.0" } }),
+      "vite.config.ts": viteConfig,
+    });
+    const plan = emptyPlan();
+    planTailwind(tmp, plan);
+    return plan;
+  };
+
+  it("does not add the plugin to an explicit plugins array when a spread may override it", () => {
+    for (const config of [
+      `${VITE}export default defineConfig({ plugins: [], ...base });\n`,
+      `${VITE}export default defineConfig({ ...base, plugins: [] });\n`,
+      `${VITE}export default { plugins: [a()], ...base };\n`,
+    ]) {
+      expect(withTailwindPlugin(config), config).toBeNull();
+    }
+    const plan = tailwindPlan(`${VITE}export default defineConfig({ plugins: [], ...base });\n`);
+    expect(plan.changes).toEqual([]);
+    expect(plan.manual).toHaveLength(1);
+    expect(plan.manual[0]).toContain("plugins: [tailwindcss()]");
+  });
+
+  it("does not report the plugin as configured when a spread may override the plugins array", () => {
+    const config = `import tailwindcss from "@tailwindcss/vite";\n${VITE}export default defineConfig({ plugins: [tailwindcss()], ...base });\n`;
+    expect(withTailwindPlugin(config)).toBeNull();
+  });
+
+  it("does not report an existing alias or vite-tsconfig-paths as configured when a spread may override them", () => {
+    for (const config of [
+      `${VITE}export default defineConfig({ resolve: { alias: { "@": "/src" } }, ...base });\n`,
+      `${VITE}export default defineConfig({ ...base, resolve: { alias: [{ find: "@", replacement: "/src" }] } });\n`,
+      `${VITE}import tsconfigPaths from "vite-tsconfig-paths";\nexport default defineConfig({ plugins: [tsconfigPaths()], ...base });\n`,
+    ]) {
+      const plan = aliasPlan(config);
+      expect(plan.changes, config).toEqual([]);
+      expect(plan.manual, config).toHaveLength(1);
+      expect(plan.manual[0]).toContain('import { fileURLToPath } from "node:url";');
+    }
+  });
+
+  it("uses a renamed fileURLToPath binding instead of an undefined identifier", () => {
+    const plan = aliasPlan(
+      `import { fileURLToPath as toPath } from "node:url";\n${VITE}export default defineConfig({});\n`,
+    );
+    const content = plan.changes[0].content ?? "";
+    expect(content).toContain('alias: { "@": toPath(new URL("./src", import.meta.url)) }');
+    expect(content).not.toMatch(/(?<![\w$.])fileURLToPath\s*\(/);
+    expect(content.match(/from "node:url"/g)).toHaveLength(1);
+  });
+
+  it("keeps the plain name when fileURLToPath is imported alongside other bindings", () => {
+    const plan = aliasPlan(
+      `import { pathToFileURL, fileURLToPath } from "url";\n${VITE}export default defineConfig({});\n`,
+    );
+    const content = plan.changes[0].content ?? "";
+    expect(content).toContain('alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) }');
+    expect(content.match(/from "(node:)?url"/g)).toHaveLength(1);
+  });
+
+  it("gives instructions for a type-only fileURLToPath import, which binds no value and blocks a second import", () => {
+    const plan = aliasPlan(`import { type fileURLToPath } from "node:url";\n${VITE}export default defineConfig({});\n`);
+    expect(plan.changes).toEqual([]);
+    expect(plan.manual).toHaveLength(1);
+  });
+
+  it("adds its own import when node:url imports other names only", () => {
+    for (const clause of ["{ pathToFileURL }", "* as url", "{ fileURLToPathX }"]) {
+      const plan = aliasPlan(`import ${clause} from "node:url";\n${VITE}export default defineConfig({});\n`);
+      const content = plan.changes[0]?.content ?? "";
+      expect(content, clause).toMatch(/^import \{ fileURLToPath \} from "node:url";$/m);
+    }
+  });
+
+  it("gives instructions when adding the import would clash with an existing fileURLToPath", () => {
+    const plan = aliasPlan(
+      `import { fileURLToPath as toPath } from "node:url";\n${VITE}const fileURLToPath = (u) => u;\nexport default defineConfig({});\n`,
+    );
+    // The renamed import is usable, so no new import and no clash.
+    expect(plan.changes[0].content).toContain("toPath(new URL");
+
+    const clash = aliasPlan(`${VITE}const fileURLToPath = (u) => u;\nexport default defineConfig({});\n`);
+    expect(clash.changes).toEqual([]);
+    expect(clash.manual).toHaveLength(1);
+  });
+});

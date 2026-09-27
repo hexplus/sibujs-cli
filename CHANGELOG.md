@@ -6,6 +6,32 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.5.1] — 2026-09-26
+
+### Changed — template dependencies
+
+- `sibujs-cli` → `^1.5.1` in the generated `devDependencies`, so scaffolded
+  projects get the `init` fixes below.
+
+### Fixed — `sibujs init` and spreads in the Vite config
+
+A spread later in the exported config overrides explicit properties before it:
+in `export default { plugins: [], ...base }` Vite reads `base.plugins`. `init`
+still added `tailwindcss()` to the explicit array and reported success, and
+trusted an existing `resolve.alias` or `vite-tsconfig-paths` call that a spread
+could replace. Any spread, computed key or shorthand property in the config
+object now leaves the file untouched and prints the lines to add, as documented.
+
+### Fixed — renamed `fileURLToPath` imports
+
+With `import { fileURLToPath as toPath } from "node:url"`, `init` skipped adding
+its import but generated `fileURLToPath(…)`, an undefined identifier. The alias
+now calls the existing local name (`toPath(…)`). A type-only import, or an
+unrelated `fileURLToPath` already declared in the file, gets instructions
+instead of a clashing import.
+
+---
+
 ## [1.5.0] — 2026-09-13
 
 Copy sibujs-ui components into a project as source code.

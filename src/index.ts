@@ -155,7 +155,7 @@ cli
   );
 
 cli.help();
-cli.version("1.5.0");
+cli.version("1.5.1");
 
 cli.on("command:*", () => {
   console.error(pc.red(`Unknown command: ${cli.args.join(" ")}`));

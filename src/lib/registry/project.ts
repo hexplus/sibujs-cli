@@ -143,15 +143,30 @@ function defaultImportName(vite: ViteSource, specifier: string): string | null |
 }
 
 /**
+ * The exported config object when every one of its top-level keys is known,
+ * otherwise `null`.
+ *
+ * A spread, computed key or shorthand property can supply or replace any key,
+ * and a spread AFTER an explicit property overrides it: in
+ * `{ plugins: [], ...base }` Vite reads `base.plugins`. Neither editing such an
+ * object nor reading "already configured" from it is certain, so both fall
+ * back to instructions.
+ */
+function knownConfig(vite: ViteSource): ObjectLiteral | null {
+  return vite.config && !vite.config.opaque ? vite.config : null;
+}
+
+/**
  * The exported config's top-level `plugins` array: its `[` index, `"absent"`
  * when there is no `plugins` key to worry about, or `null` when it cannot be
- * edited with certainty (no exported object, a spread that may hold plugins,
+ * edited with certainty (no exported object, a spread or other unknowable key,
  * or a value that is not an array literal).
  */
 function pluginsArray(vite: ViteSource): number | "absent" | null {
-  if (!vite.config) return null;
-  const value = vite.config.keys.get("plugins");
-  if (value === undefined) return vite.config.opaque ? null : "absent";
+  const config = knownConfig(vite);
+  if (!config) return null;
+  const value = config.keys.get("plugins");
+  if (value === undefined) return "absent";
   const literal = literalAt(vite.code, value);
   return literal?.kind === "[" ? literal.open : null;
 }
@@ -327,11 +342,10 @@ export function planAlias(root: string, prefix: string, dir: string, plan: Setup
   const viteFile = findViteConfig(root);
   if (!viteFile) return;
   const dirUrl = dir === "." ? "./" : `./${dir}`;
-  const snippet = `resolve: {\n    alias: { "${prefix}": fileURLToPath(new URL("${dirUrl}", import.meta.url)) },\n  },`;
-  const next = withAlias(pendingContent(plan, viteFile) ?? fs.readFileSync(viteFile, "utf-8"), prefix, snippet);
+  const next = withAlias(pendingContent(plan, viteFile) ?? fs.readFileSync(viteFile, "utf-8"), prefix, dirUrl);
   if (next === null) {
     plan.manual.push(
-      `Add the import alias to ${display(root, viteFile)}:\n    import { fileURLToPath } from "node:url";\n    ${snippet}`,
+      `Add the import alias to ${display(root, viteFile)}:\n    import { fileURLToPath } from "node:url";\n    ${aliasSnippet(prefix, dirUrl, "fileURLToPath")}`,
     );
   } else if (next !== undefined) {
     setChange(plan, viteFile, display(root, viteFile), next, `alias "${prefix}" → ${dirUrl}`);
@@ -343,30 +357,59 @@ export function planAlias(root: string, prefix: string, dir: string, plan: Setup
  * when the alias is already declared, `null` when the config is not one this
  * can edit with certainty (including an existing `resolve` to merge into).
  */
-function withAlias(source: string, prefix: string, snippet: string): string | null | undefined {
+function withAlias(source: string, prefix: string, dirUrl: string): string | null | undefined {
   const vite = scanVite(source);
   if (!vite) return null;
+  // A spread can replace `plugins` or `resolve` after the properties read
+  // below, so neither "already configured" nor an edit is certain.
+  const config = knownConfig(vite);
+  if (!config) return null;
   // vite-tsconfig-paths resolves the tsconfig alias itself, but only when it is
   // actually called in the exported plugins array. Imported and unused, it
   // does nothing, and `resolve.alias` below works with or without it.
   const tsconfigPaths = defaultImportName(vite, "vite-tsconfig-paths");
   const plugins = pluginsArray(vite);
   if (tsconfigPaths && typeof plugins === "number" && callsPlugin(vite, plugins, tsconfigPaths)) return undefined;
-  if (!vite.config) return null;
 
-  const resolve = vite.config.keys.get("resolve");
+  const resolve = config.keys.get("resolve");
   if (resolve !== undefined) {
     // Already declared in the top-level `resolve.alias`? Anything else in an
     // existing `resolve` is left for the user to merge.
     return declaresAlias(vite.code, source, resolve, prefix) ? undefined : null;
   }
-  if (vite.config.opaque) return null;
 
-  const next = `${source.slice(0, vite.open + 1)}\n  ${snippet}${source.slice(vite.open + 1)}`;
-  const hasFileURLToPath = vite.imports.some(
-    (i) => (i.specifier === "node:url" || i.specifier === "url") && /\bfileURLToPath\b/.test(i.clause),
-  );
-  return hasFileURLToPath ? next : addImport(next, 'import { fileURLToPath } from "node:url";');
+  // Call `fileURLToPath` through the name it is actually bound to: with
+  // `import { fileURLToPath as toPath }`, a generated `fileURLToPath(…)` would
+  // be undefined.
+  const bound = namedImportBinding(vite, ["node:url", "url"], "fileURLToPath");
+  // Our own import must not collide with an unrelated `fileURLToPath`.
+  if (!bound && usesIdentifier(vite, "fileURLToPath")) return null;
+  const next = `${source.slice(0, vite.open + 1)}\n  ${aliasSnippet(prefix, dirUrl, bound ?? "fileURLToPath")}${source.slice(vite.open + 1)}`;
+  return bound ? next : addImport(next, 'import { fileURLToPath } from "node:url";');
+}
+
+/** The `resolve.alias` block, calling `fileURLToPath` through the local name `call`. */
+function aliasSnippet(prefix: string, dirUrl: string, call: string): string {
+  return `resolve: {\n    alias: { "${prefix}": ${call}(new URL("${dirUrl}", import.meta.url)) },\n  },`;
+}
+
+/**
+ * The local name a value import of `name` from one of `specifiers` is bound to
+ * (`{ name }` → `name`, `{ name as alias }` → `alias`), or `undefined`.
+ * Type-only imports (`import type { … }`, `{ type name }`) bind no value and
+ * do not count.
+ */
+function namedImportBinding(vite: ViteSource, specifiers: string[], name: string): string | undefined {
+  for (const { specifier, clause } of vite.imports) {
+    if (!specifiers.includes(specifier) || /^type(?![\w$])/.test(clause)) continue;
+    const braces = /\{([^}]*)\}/.exec(clause);
+    if (!braces) continue;
+    for (const entry of braces[1].split(",")) {
+      const match = /^\s*([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?\s*$/.exec(entry);
+      if (match?.[1] === name) return match[2] ?? name;
+    }
+  }
+  return undefined;
 }
 
 /**

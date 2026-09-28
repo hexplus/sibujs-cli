@@ -32,13 +32,25 @@ may now be files or directories:
   a directory named explicitly is always read;
 - several paths combine in the order given, and a file reached twice is linted
   once;
-- a path that does not exist, or a file of another type, is reported
-  (`Path not found: …`, `Unsupported file type: …`) and fails the command —
-  even with `--warn-only` — while the remaining paths are still linted.
+- a path that does not exist, a file of another type, or a file or directory
+  that cannot be read (a permission error, say — including one met while
+  recursing) is reported (`Path not found: …`, `Unsupported file type: …`,
+  `Cannot read directory: …`) and fails the command — even with `--warn-only`
+  — while the remaining paths are still linted. A failed run never ends with
+  "No lint issues found".
 
 `sibujs lint` with no arguments is unchanged. Files are now visited in sorted
 order within each directory, so the report order no longer depends on the
 filesystem.
+
+### Fixed — the TypeScript compiler is resolved per project
+
+The linter resolves TypeScript from the project being linted. The first
+compiler found was cached for the whole process, so a second project linted in
+the same process was parsed with the first project's TypeScript, and the
+programmatic `lint(paths, { cwd })` resolved its paths against `cwd` but its
+compiler against `process.cwd()`. The compiler is now resolved against the same
+directory as the paths, and cached per project root.
 
 ## [1.5.1] — 2026-09-26
 

@@ -513,9 +513,11 @@ sibujs lint src tests scripts                # these directories, recursively
   default `src/` scan. A directory you name explicitly is always read.
 - Several paths combine in the order given. A file reached twice (named twice,
   or named and also inside a named directory) is linted once.
-- A path that does not exist, or a file with another extension, is reported
-  (`Path not found: …`, `Unsupported file type: …`) and fails the command, even
-  with `--warn-only`; the remaining paths are still linted.
+- A path that does not exist, a file with another extension, or a file or
+  directory that cannot be read is reported (`Path not found: …`,
+  `Unsupported file type: …`, `Cannot read directory: …`) and fails the command,
+  even with `--warn-only`; the remaining paths are still linted, and no
+  "No lint issues found" line is printed.
 - Paths are taken literally. Glob patterns are expanded by your shell, not by
   `sibujs lint`.
 
@@ -543,9 +545,9 @@ sibujs lint --warn-only  # reports the same findings, exits 0
 The linter parses with the TypeScript compiler rather than scanning text, so
 comments, strings, template literals, regular expressions and property names are
 never mistaken for real code. TypeScript is resolved at runtime from the project
-being linted (every project `sibujs create` generates has it) and is declared as
-an optional peer dependency; if it cannot be found, `sibujs lint` says so and
-exits nonzero rather than guessing.
+being linted (every project `sibujs create` generates has it), falling back to
+the CLI's own copy, and is declared as an optional peer dependency; if it cannot
+be found, `sibujs lint` says so and exits nonzero rather than guessing.
 
 `each-requires-key` accepts a key only when it can establish one statically —
 an object literal with a `key` property, either `{ key: fn }` or `{ key }`.

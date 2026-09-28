@@ -184,3 +184,121 @@ describe("lint() with path arguments", () => {
     expect(process.exitCode).toBe(1);
   });
 });
+
+describe("lint() never reports success after a usage error", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  const logged = () =>
+    vi
+      .mocked(console.log)
+      .mock.calls.flat()
+      .map((m) => String(m))
+      .join("\n");
+  const errored = () =>
+    vi
+      .mocked(console.error)
+      .mock.calls.flat()
+      .map((m) => String(m))
+      .join("\n");
+
+  it("a clean file plus a missing path: returns 0 violations, exits 1, no green success", () => {
+    expect(lint(["src/main.ts", "does-not-exist"], { cwd: root })).toBe(0);
+    expect(process.exitCode).toBe(1);
+    expect(errored()).toMatch(/Path not found: does-not-exist/);
+    expect(logged()).not.toContain("No lint issues found");
+  });
+
+  it("a clean file plus an unsupported extension: same", () => {
+    expect(lint(["src/main.ts", "README.md"], { cwd: root })).toBe(0);
+    expect(process.exitCode).toBe(1);
+    expect(errored()).toMatch(/Unsupported file type: README\.md/);
+    expect(logged()).not.toContain("No lint issues found");
+  });
+
+  it("--warn-only does not turn a usage error into success", () => {
+    expect(lint(["src/main.ts", "missing"], { cwd: root, warnOnly: true })).toBe(0);
+    expect(process.exitCode).toBe(1);
+    expect(logged()).not.toContain("No lint issues found");
+  });
+
+  it("--warn-only with a violation and a missing path: returns the violation count, still exits 1", () => {
+    write("src/bad.ts", DIRTY);
+    expect(lint(["src/bad.ts", "missing"], { cwd: root, warnOnly: true })).toBe(1);
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("--warn-only with only violations exits 0", () => {
+    write("src/bad.ts", DIRTY);
+    expect(lint(["src/bad.ts"], { cwd: root, warnOnly: true })).toBe(1);
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("clean targets and no usage error still report success", () => {
+    expect(lint(["src/main.ts"], { cwd: root })).toBe(0);
+    expect(process.exitCode).toBeUndefined();
+    expect(logged()).toContain("No lint issues found");
+  });
+});
+
+describe("unreadable directories are reported, not thrown", () => {
+  /** Make `readdirSync` fail for one directory, as a permission error would. */
+  function failReaddir(dir: string) {
+    const real = fs.readdirSync;
+    return vi.spyOn(fs, "readdirSync").mockImplementation(((p: fs.PathLike, ...rest: unknown[]) => {
+      if (path.resolve(String(p)) === path.resolve(dir)) {
+        throw Object.assign(new Error(`EACCES: permission denied, scandir '${String(p)}'`), { code: "EACCES" });
+      }
+      return (real as (...a: unknown[]) => unknown)(p, ...rest);
+    }) as typeof fs.readdirSync);
+  }
+
+  it("an explicitly named unreadable directory becomes an error; other arguments still resolve", () => {
+    failReaddir(path.join(root, "tests"));
+    let result: ReturnType<typeof resolveLintTargets> | undefined;
+    expect(() => {
+      result = resolveLintTargets(["tests", "scripts"], root);
+    }).not.toThrow();
+    expect(rel(result?.files ?? [])).toEqual(["scripts/gen.ts"]);
+    expect(result?.errors).toEqual(["Cannot read directory: tests (EACCES)"]);
+  });
+
+  it("an unreadable nested directory is reported and the rest of the tree is still linted", () => {
+    failReaddir(path.join(root, "src", "components"));
+    const { files, errors } = resolveLintTargets(["src"], root);
+    expect(rel(files)).toEqual(["src/legacy/old.jsx", "src/main.ts"]);
+    expect(errors).toEqual(["Cannot read directory: src/components (EACCES)"]);
+  });
+
+  it("the default ./src scan reports an unreadable directory too", () => {
+    failReaddir(path.join(root, "src", "legacy"));
+    const { files, errors } = resolveLintTargets(undefined, root);
+    expect(rel(files)).toEqual(["src/components/Nav.tsx", "src/components/util.js", "src/main.ts"]);
+    expect(errors).toEqual(["Cannot read directory: src/legacy (EACCES)"]);
+  });
+
+  it("lint() fails the command and does not claim success", () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    failReaddir(path.join(root, "tests"));
+    expect(lint(["tests", "src/main.ts"], { cwd: root })).toBe(0);
+    expect(process.exitCode).toBe(1);
+    expect(vi.mocked(console.error).mock.calls.flat().join("\n")).toMatch(/Cannot read directory: tests/);
+    expect(vi.mocked(console.log).mock.calls.flat().join("\n")).not.toContain("No lint issues found");
+  });
+
+  it("a path that exists but cannot be inspected is not reported as missing", () => {
+    const real = fs.statSync;
+    vi.spyOn(fs, "statSync").mockImplementation(((p: fs.PathLike, ...rest: unknown[]) => {
+      if (path.resolve(String(p)) === path.resolve(root, "scripts")) {
+        throw Object.assign(new Error("EPERM: operation not permitted"), { code: "EPERM" });
+      }
+      return (real as (...a: unknown[]) => unknown)(p, ...rest);
+    }) as typeof fs.statSync);
+    const { files, errors } = resolveLintTargets(["scripts", "src/main.ts"], root);
+    expect(rel(files)).toEqual(["src/main.ts"]);
+    expect(errors).toEqual(["Cannot read path: scripts (EPERM)"]);
+  });
+});

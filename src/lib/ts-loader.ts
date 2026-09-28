@@ -15,36 +15,49 @@ import type * as TS from "typescript";
  * first (every project scaffolded by `sibujs create` has it, and any TypeScript
  * project does), then next to this CLI. Declared as an optional peer so npm
  * surfaces the requirement.
+ *
+ * Resolution is per project root, so one process can lint several projects —
+ * `lint(files, { cwd })` is reusable programmatically — and each is parsed with
+ * its own compiler. Results are cached by the resolved root; Node's own module
+ * cache, keyed by the compiler's real path, makes two roots that resolve to one
+ * installation share one instance.
  */
-let cached: typeof TS | null | undefined;
+const cache = new Map<string, typeof TS | null>();
+// The CLI's own installation, looked up once.
+let selfCompiler: typeof TS | null | undefined;
+
+function loadOwnTypeScript(): typeof TS | null {
+  if (selfCompiler !== undefined) return selfCompiler;
+  try {
+    selfCompiler = createRequire(import.meta.url)("typescript") as typeof TS;
+  } catch {
+    selfCompiler = null;
+  }
+  return selfCompiler;
+}
 
 export function loadTypeScript(cwd: string = process.cwd()): typeof TS | null {
-  if (cached !== undefined) return cached;
+  const root = path.resolve(cwd);
+  const hit = cache.get(root);
+  if (hit !== undefined) return hit;
 
-  // The project being linted takes precedence, so the parser matches the
-  // TypeScript the project itself compiles with.
+  let compiler: typeof TS | null;
   try {
-    const projectRequire = createRequire(path.join(path.resolve(cwd), "package.json"));
-    cached = projectRequire("typescript") as typeof TS;
-    return cached;
+    // The project being linted takes precedence, so the parser matches the
+    // TypeScript the project itself compiles with.
+    compiler = createRequire(path.join(root, "package.json"))("typescript") as typeof TS;
   } catch {
-    // Fall through.
+    // Then this CLI's own installation.
+    compiler = loadOwnTypeScript();
   }
-
-  // Then this CLI's own installation.
-  try {
-    const selfRequire = createRequire(import.meta.url);
-    cached = selfRequire("typescript") as typeof TS;
-    return cached;
-  } catch {
-    cached = null;
-    return cached;
-  }
+  cache.set(root, compiler);
+  return compiler;
 }
 
 /** Reset the module cache. Test seam only. */
 export function resetTypeScriptCache(): void {
-  cached = undefined;
+  cache.clear();
+  selfCompiler = undefined;
 }
 
 export function typeScriptMissingMessage(): string {

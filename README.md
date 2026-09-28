@@ -497,14 +497,29 @@ from 1 to 65535. `0`, negatives, decimals, values above 65535, empty values and
 anything with extra characters are rejected with a clear message and a nonzero
 exit code.
 
-### `sibujs lint [...files]`
+### `sibujs lint [...paths]`
 
-Lint source files for SibuJS best practices. Scans `src/` by default, or specify files explicitly.
+Lint source files for SibuJS best practices. Scans `src/` by default, or pass
+files and directories explicitly.
 
 ```bash
-sibujs lint
-sibujs lint src/App.ts src/components/Nav.ts
+sibujs lint                                  # every .ts/.tsx/.js/.jsx file under src/
+sibujs lint src/App.ts src/components/Nav.ts # just these files
+sibujs lint src tests scripts                # these directories, recursively
 ```
+
+- A directory is scanned recursively for `.ts`, `.tsx`, `.js` and `.jsx` files,
+  skipping `node_modules` and `dist` at any depth — the same rules as the
+  default `src/` scan. A directory you name explicitly is always read.
+- Several paths combine in the order given. A file reached twice (named twice,
+  or named and also inside a named directory) is linted once.
+- A path that does not exist, a file with another extension, or a file or
+  directory that cannot be read is reported (`Path not found: …`,
+  `Unsupported file type: …`, `Cannot read directory: …`) and fails the command,
+  even with `--warn-only`; the remaining paths are still linted, and no
+  "No lint issues found" line is printed.
+- Paths are taken literally. Glob patterns are expanded by your shell, not by
+  `sibujs lint`.
 
 Built-in rules:
 
@@ -530,9 +545,9 @@ sibujs lint --warn-only  # reports the same findings, exits 0
 The linter parses with the TypeScript compiler rather than scanning text, so
 comments, strings, template literals, regular expressions and property names are
 never mistaken for real code. TypeScript is resolved at runtime from the project
-being linted (every project `sibujs create` generates has it) and is declared as
-an optional peer dependency; if it cannot be found, `sibujs lint` says so and
-exits nonzero rather than guessing.
+being linted (every project `sibujs create` generates has it), falling back to
+the CLI's own copy, and is declared as an optional peer dependency; if it cannot
+be found, `sibujs lint` says so and exits nonzero rather than guessing.
 
 `each-requires-key` accepts a key only when it can establish one statically —
 an object literal with a `key` property, either `{ key: fn }` or `{ key }`.

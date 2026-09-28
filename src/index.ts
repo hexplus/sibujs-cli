@@ -51,11 +51,11 @@ cli
   });
 
 cli
-  .command("lint [...files]", "Lint source files for Sibu best practices")
+  .command("lint [...paths]", "Lint source files for Sibu best practices (files or directories; default: src/)")
   .option("--warn-only", "Report findings but exit 0 (default: violations fail the command)")
-  .action(async (files: string[], options?: { warnOnly?: boolean }) => {
+  .action(async (paths: string[], options?: { warnOnly?: boolean }) => {
     const { lint } = await import("./commands/lint.js");
-    lint(files, { warnOnly: options?.warnOnly });
+    lint(paths, { warnOnly: options?.warnOnly });
   });
 
 cli.command("analyze", "Analyze Sibu bundle size impact").action(async () => {
@@ -155,7 +155,7 @@ cli
   );
 
 cli.help();
-cli.version("1.5.1");
+cli.version("1.6.0");
 
 cli.on("command:*", () => {
   console.error(pc.red(`Unknown command: ${cli.args.join(" ")}`));

@@ -451,19 +451,128 @@ export function lintFile(filePath: string, ts?: typeof TS): LintViolation[] {
   return lintSource(compiler, filePath, content);
 }
 
-function collectFiles(dir: string, ext: string[]): string[] {
+/** Extensions `sibujs lint` reads. */
+export const LINT_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx"] as const;
+
+/** Directories skipped, at any depth, while recursing into a directory. */
+const IGNORED_DIRS = new Set(["node_modules", "dist"]);
+
+function isLintable(file: string): boolean {
+  return LINT_EXTENSIONS.some((ext) => file.endsWith(ext));
+}
+
+/** A filesystem error's code (`EACCES`, …), or its message when it has none. */
+function fsReason(error: unknown): string {
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+  return code ?? (error instanceof Error ? error.message : String(error));
+}
+
+/** `target` as the user would name it: relative to `cwd`, with `/` separators. */
+function displayPath(target: string, cwd: string): string {
+  return (path.relative(cwd, target) || ".").split(path.sep).join("/");
+}
+
+/**
+ * Every lintable file under `dir`, recursively. Entries are visited in sorted
+ * order, so the result does not depend on the order the filesystem lists them.
+ *
+ * A directory that cannot be read (permissions, a broken mount) is recorded in
+ * `errors` and skipped; the rest of the tree is still collected.
+ */
+function collectFiles(dir: string, cwd: string, errors: string[]): string[] {
   const results: string[] = [];
   if (!fs.existsSync(dir)) return results;
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (error) {
+    errors.push(`Cannot read directory: ${displayPath(dir, cwd)} (${fsReason(error)})`);
+    return results;
+  }
+  entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory() && entry.name !== "node_modules" && entry.name !== "dist") {
-      results.push(...collectFiles(fullPath, ext));
-    } else if (ext.some((e) => entry.name.endsWith(e))) {
+    if (entry.isDirectory()) {
+      if (!IGNORED_DIRS.has(entry.name)) results.push(...collectFiles(fullPath, cwd, errors));
+    } else if (isLintable(entry.name)) {
       results.push(fullPath);
     }
   }
   return results;
+}
+
+export interface LintTargets {
+  /** Absolute paths to lint, deduplicated, in a deterministic order. */
+  files: string[];
+  /**
+   * One actionable message per argument that cannot be linted, and per
+   * directory that could not be read while recursing.
+   */
+  errors: string[];
+}
+
+/**
+ * Resolve `sibujs lint` arguments to the files to lint.
+ *
+ * - No arguments: every lintable file under `./src`, recursively.
+ * - A file: that file. It must have a lintable extension.
+ * - A directory: every lintable file under it, recursively. `node_modules` and
+ *   `dist` are skipped at any depth, as in the default scan; a directory named
+ *   explicitly is always read.
+ *
+ * Several arguments combine in argument order. A file reached more than once —
+ * named twice, or both named and inside a named directory — is linted once, at
+ * its first position. An argument that does not exist, names a file of another
+ * type, or cannot be read — and a directory that cannot be read while recursing
+ * — becomes an error instead of an exception.
+ */
+export function resolveLintTargets(args: readonly string[] | undefined, cwd: string = process.cwd()): LintTargets {
+  const errors: string[] = [];
+  if (!args || args.length === 0) {
+    return { files: collectFiles(path.resolve(cwd, "src"), cwd, errors), errors };
+  }
+
+  const files: string[] = [];
+  const seen = new Set<string>();
+
+  const add = (file: string) => {
+    // The real path, so `src/a.ts`, `./src/a.ts`, an absolute spelling and a
+    // differently-cased one on a case-insensitive filesystem are one file.
+    let key = file;
+    try {
+      key = fs.realpathSync.native(file);
+    } catch {
+      // Unresolvable: fall back to the resolved spelling.
+    }
+    if (seen.has(key)) return;
+    seen.add(key);
+    files.push(file);
+  };
+
+  for (const arg of args) {
+    const target = path.resolve(cwd, arg);
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(target);
+    } catch (error) {
+      const reason = fsReason(error);
+      // Only a path that is not there is "not found"; one that exists but
+      // cannot be inspected says why.
+      errors.push(
+        reason === "ENOENT" || reason === "ENOTDIR" ? `Path not found: ${arg}` : `Cannot read path: ${arg} (${reason})`,
+      );
+      continue;
+    }
+    if (stat.isDirectory()) {
+      for (const file of collectFiles(target, cwd, errors)) add(file);
+    } else if (isLintable(target)) {
+      add(target);
+    } else {
+      errors.push(`Unsupported file type: ${arg} (expected .ts, .tsx, .js or .jsx)`);
+    }
+  }
+
+  return { files, errors };
 }
 
 export interface LintOptions {
@@ -473,29 +582,46 @@ export interface LintOptions {
    * succeeds gives CI false confidence.
    */
   warnOnly?: boolean;
+  /** Directory that arguments (and the default `src/`) resolve against. Default: `process.cwd()`. */
+  cwd?: string;
 }
 
 /**
- * Lint the given files, or everything under `src/`.
+ * Lint the given files and directories, or everything under `src/`.
  *
- * @returns the number of violations, or -1 when the parser is unavailable.
- * Sets `process.exitCode` to 1 on violations unless `warnOnly` is set.
+ * Paths and the TypeScript compiler are both resolved against `options.cwd`
+ * (default `process.cwd()`), so the project being linted is parsed with its own
+ * TypeScript.
+ *
+ * @returns the number of lint rule violations, or -1 when the parser is
+ * unavailable. Usage errors are not violations and are not counted: they are
+ * reported through the exit code.
+ *
+ * Exit code (`process.exitCode`):
+ * - 1 on violations, unless `warnOnly` is set;
+ * - 1 on any usage error — an argument that cannot be linted, or a file or
+ *   directory that cannot be read (see {@link resolveLintTargets}) — even with
+ *   `warnOnly`. `lint(["clean.ts", "missing"])` returns 0 and exits 1.
+ *
+ * "No lint issues found" is printed only when nothing failed.
  */
 export function lint(files?: string[], options: LintOptions = {}): number {
-  const ts = loadTypeScript();
+  const cwd = options.cwd ?? process.cwd();
+  const ts = loadTypeScript(cwd);
   if (!ts) {
     console.error(typeScriptMissingMessage());
     process.exitCode = 1;
     return -1;
   }
 
-  const targets =
-    files && files.length > 0
-      ? files.map((f) => path.resolve(f))
-      : collectFiles(path.resolve("src"), [".ts", ".tsx", ".js", ".jsx"]);
+  const { files: targets, errors } = resolveLintTargets(files, cwd);
+  let usageErrors = errors.length;
+
+  for (const message of errors) console.error(pc.red(`✖ ${message}`));
+  if (usageErrors > 0) process.exitCode = 1;
 
   if (targets.length === 0) {
-    console.log(pc.yellow("No files found to lint."));
+    if (usageErrors === 0) console.log(pc.yellow("No files found to lint."));
     return 0;
   }
 
@@ -503,9 +629,18 @@ export function lint(files?: string[], options: LintOptions = {}): number {
   const label = options.warnOnly ? pc.yellow("warning") : pc.red("error");
 
   for (const file of targets) {
-    const violations = lintSource(ts, file, fs.readFileSync(file, "utf-8"));
+    let content: string;
+    try {
+      content = fs.readFileSync(file, "utf-8");
+    } catch (error) {
+      console.error(pc.red(`✖ Cannot read file: ${displayPath(file, cwd)} (${fsReason(error)})`));
+      process.exitCode = 1;
+      usageErrors++;
+      continue;
+    }
+    const violations = lintSource(ts, file, content);
     if (violations.length > 0) {
-      const rel = path.relative(process.cwd(), file);
+      const rel = path.relative(cwd, file);
       console.log(`\n${pc.underline(rel)}`);
       for (const v of violations) {
         console.log(`  ${pc.dim(`${v.line}:${v.column}`)}  ${label}  ${v.message}  ${pc.dim(v.rule)}`);
@@ -515,7 +650,9 @@ export function lint(files?: string[], options: LintOptions = {}): number {
   }
 
   if (totalViolations === 0) {
-    console.log(pc.green("✔ No lint issues found."));
+    // Never a green "success" next to a usage error: the errors above already
+    // explain why the command fails.
+    if (usageErrors === 0) console.log(pc.green("✔ No lint issues found."));
     return 0;
   }
 

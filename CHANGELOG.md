@@ -6,6 +6,40 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.6.0] — 2026-09-28
+
+### Changed — template dependencies
+
+Projects scaffolded by `sibujs create` now start from:
+
+- `sibujs` → `^4.10.0`, which keeps an outgoing route page on its own route
+  and stops `query()` refetching when its key getter re-runs to the same key;
+- `sibujs-ui` → `^1.8.1`;
+- `sibujs-cli` → `^1.6.0`, so `sibujs lint` accepts directories (below);
+- `vite` → `^8.3.1`, `typescript` → `~6.0.3`, and with `--tailwind`
+  `tailwindcss` / `@tailwindcss/vite` → `^4.3.3`.
+
+Every range stays within its current major.
+
+### Fixed — `sibujs lint` accepts directories
+
+Every explicit argument was read as a file, so `sibujs lint src tests scripts`
+crashed with an uncaught `EISDIR`, and a mistyped path with `ENOENT`. Arguments
+may now be files or directories:
+
+- a directory is linted recursively (`.ts`, `.tsx`, `.js`, `.jsx`), skipping
+  `node_modules` and `dist` at any depth, exactly like the default `src/` scan;
+  a directory named explicitly is always read;
+- several paths combine in the order given, and a file reached twice is linted
+  once;
+- a path that does not exist, or a file of another type, is reported
+  (`Path not found: …`, `Unsupported file type: …`) and fails the command —
+  even with `--warn-only` — while the remaining paths are still linted.
+
+`sibujs lint` with no arguments is unchanged. Files are now visited in sorted
+order within each directory, so the report order no longer depends on the
+filesystem.
+
 ## [1.5.1] — 2026-09-26
 
 ### Changed — template dependencies

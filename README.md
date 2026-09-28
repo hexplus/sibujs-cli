@@ -497,14 +497,27 @@ from 1 to 65535. `0`, negatives, decimals, values above 65535, empty values and
 anything with extra characters are rejected with a clear message and a nonzero
 exit code.
 
-### `sibujs lint [...files]`
+### `sibujs lint [...paths]`
 
-Lint source files for SibuJS best practices. Scans `src/` by default, or specify files explicitly.
+Lint source files for SibuJS best practices. Scans `src/` by default, or pass
+files and directories explicitly.
 
 ```bash
-sibujs lint
-sibujs lint src/App.ts src/components/Nav.ts
+sibujs lint                                  # every .ts/.tsx/.js/.jsx file under src/
+sibujs lint src/App.ts src/components/Nav.ts # just these files
+sibujs lint src tests scripts                # these directories, recursively
 ```
+
+- A directory is scanned recursively for `.ts`, `.tsx`, `.js` and `.jsx` files,
+  skipping `node_modules` and `dist` at any depth — the same rules as the
+  default `src/` scan. A directory you name explicitly is always read.
+- Several paths combine in the order given. A file reached twice (named twice,
+  or named and also inside a named directory) is linted once.
+- A path that does not exist, or a file with another extension, is reported
+  (`Path not found: …`, `Unsupported file type: …`) and fails the command, even
+  with `--warn-only`; the remaining paths are still linted.
+- Paths are taken literally. Glob patterns are expanded by your shell, not by
+  `sibujs lint`.
 
 Built-in rules:
 

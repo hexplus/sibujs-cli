@@ -1,0 +1,5 @@
+[
+  { "id": "mug", "name": "Mug", "price": 12, "color": "#d94f30" },
+  { "id": "cap", "name": "Cap", "price": 18, "color": "#2a6fdb" },
+  { "id": "tee", "name": "T-shirt", "price": 22, "color": "#1f9d55" }
+]

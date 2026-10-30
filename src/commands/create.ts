@@ -181,6 +181,10 @@ export interface CreateOptions {
   tailwind?: boolean;
   ui?: string;
   router?: boolean;
+  /** Pre-render every route at build time (implies `router`). */
+  prerender?: boolean;
+  /** Pre-render plus a Node server rendering per request (implies `prerender`). */
+  ssr?: boolean;
 }
 
 export async function create(name?: string, options: CreateOptions = {}) {
@@ -217,7 +221,9 @@ export async function create(name?: string, options: CreateOptions = {}) {
   }
 
   const useTailwind = (options.tailwind ?? false) || useUi;
-  const useRouter = options.router ?? false;
+  const useSsr = options.ssr ?? false;
+  const usePrerender = (options.prerender ?? false) || useSsr;
+  const useRouter = (options.router ?? false) || usePrerender;
 
   if (fs.existsSync(targetDir)) {
     const entries = fs.readdirSync(targetDir);
@@ -243,7 +249,7 @@ export async function create(name?: string, options: CreateOptions = {}) {
 
   const replacements: Record<string, string> = {
     NAME: pkgName,
-    SIBUJS_UI_DEP: useUi ? `,\n    "sibujs-ui": "^1.8.1"` : "",
+    SIBUJS_UI_DEP: useUi ? `,\n    "sibujs-ui": "^1.9.1"` : "",
     TAILWIND_DEPS: useTailwind ? `,\n    "@tailwindcss/vite": "^4.3.3",\n    "tailwindcss": "^4.3.3"` : "",
     TAILWIND_IMPORT: useTailwind ? `import tailwindcss from "@tailwindcss/vite";\n` : "",
     TAILWIND_PLUGIN: useTailwind ? "\n    tailwindcss(),\n  " : "",
@@ -273,11 +279,17 @@ export async function create(name?: string, options: CreateOptions = {}) {
   } else if (useUi) {
     copyTemplate(path.join(TEMPLATES_DIR, "ui"), targetDir, replacements);
   }
+  // Server rendering builds on the routing app: the route table moves to
+  // routes.ts with per-route head and render modes, and the build pre-renders it.
+  if (usePrerender) copyTemplate(path.join(TEMPLATES_DIR, "prerender"), targetDir, replacements);
+  if (useSsr) copyTemplate(path.join(TEMPLATES_DIR, "ssr"), targetDir, replacements);
 
   const features: string[] = [];
   if (useTailwind) features.push("Tailwind CSS");
   if (useUi) features.push(`sibujs-ui (${theme})`);
   if (useRouter) features.push("Router");
+  if (useSsr) features.push("SSR (pre-rendered + per-request server)");
+  else if (usePrerender) features.push("Pre-rendering");
 
   console.log(`\n${pc.green("✔")} Project created in ${pc.cyan(targetDir)}`);
   if (features.length > 0) {

@@ -11,10 +11,23 @@ cli
   )
   .option("--router", "Add routing with example pages")
   .option("--tailwind", "Add Tailwind CSS without sibujs-ui")
-  .action(async (name?: string, options?: { tailwind?: boolean; ui?: string; router?: boolean }) => {
-    const { create } = await import("./commands/create.js");
-    await create(name, { tailwind: options?.tailwind, ui: options?.ui, router: options?.router });
-  });
+  .option("--prerender", "Pre-render every route at build time (per-route head, sitemap, a fetched-data page)")
+  .option("--ssr", "Pre-rendering plus a Node server that renders pages per request")
+  .action(
+    async (
+      name?: string,
+      options?: { tailwind?: boolean; ui?: string; router?: boolean; prerender?: boolean; ssr?: boolean },
+    ) => {
+      const { create } = await import("./commands/create.js");
+      await create(name, {
+        tailwind: options?.tailwind,
+        ui: options?.ui,
+        router: options?.router,
+        prerender: options?.prerender,
+        ssr: options?.ssr,
+      });
+    },
+  );
 
 cli
   .command("generate <type> <name>", "Generate a component")
@@ -35,10 +48,19 @@ cli
 
 cli
   .command("build", "Build for production")
-  .option("--ssr", "Build for server-side rendering")
-  .action(async (options: { ssr?: boolean }) => {
+  .option("--ssr [entry]", "Build for server-side rendering (with an entry: that server entry, into dist-server/)")
+  .action(async (options: { ssr?: boolean | string }) => {
     const { build } = await import("./commands/build.js");
     build(options);
+  });
+
+cli
+  .command("prerender", "Pre-render the built app again (all routes, or --routes for the pages whose data changed)")
+  .option("--routes <list>", "Comma-separated routes, e.g. /,/products/mug")
+  .option("--config <file>", "Vite config file")
+  .action(async (options: { routes?: string; config?: string }) => {
+    const { prerenderCommand } = await import("./commands/prerender.js");
+    process.exit(await prerenderCommand(options));
   });
 
 cli
@@ -155,7 +177,7 @@ cli
   );
 
 cli.help();
-cli.version("1.6.0");
+cli.version("1.7.0");
 
 cli.on("command:*", () => {
   console.error(pc.red(`Unknown command: ${cli.args.join(" ")}`));

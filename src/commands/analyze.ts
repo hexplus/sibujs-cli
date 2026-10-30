@@ -4,40 +4,40 @@ import pc from "picocolors";
 
 // Module sizes in KB, minified + gzipped.
 //
-// Measured against the published sibujs 4.4.0 / sibujs-ui 1.6.0 packages with
+// Measured against the published sibujs 4.14.0 / sibujs-ui 1.9.1 packages with
 // esbuild (bundle + minify, gzip -9). The entry-point rows are the MARGINAL
 // cost of adding that entry on top of the root package, not its standalone
 // size, because this command adds them to the per-import estimates below
 // rather than replacing them — publishing standalone sizes here would count
 // the shared reactivity core once per entry point.
 //
-// For reference, the standalone figures are roughly double the marginal ones
-// (sibujs/plugins is 28.1 KB alone but 18.7 KB on top of the root), and the
-// root package is 25.9 KB for `import * as`.
+// For reference, the standalone figures are larger than the marginal ones
+// (sibujs/plugins is 55.8 KB alone but 40.5 KB on top of the root), and the
+// root package is 33.1 KB for `import * as`.
 //
 // Re-measure when the framework's dependency graph changes.
 const MODULE_SIZES: Record<string, number> = {
   // Root package, whole surface.
-  sibujs: 25.9,
+  sibujs: 33.1,
   // Entry points: marginal cost over the root.
-  "sibujs/extras": 54.6,
-  "sibujs/plugins": 18.7,
+  "sibujs/extras": 79.5,
+  "sibujs/plugins": 40.5,
   // Build tooling runs in Node and never reaches the browser bundle.
   "sibujs/build": 0,
-  "sibujs/testing": 9.7,
-  "sibujs/data": 5.8,
-  "sibujs/browser": 5.7,
-  "sibujs/patterns": 3.4,
-  "sibujs/motion": 1.8,
-  "sibujs/ui": 8.6,
-  "sibujs/widgets": 6.4,
-  "sibujs/ssr": 10.5,
+  "sibujs/testing": 43.2,
+  "sibujs/data": 8.2,
+  "sibujs/browser": 6.6,
+  "sibujs/patterns": 4.4,
+  "sibujs/motion": 2.0,
+  "sibujs/ui": 11.8,
+  "sibujs/widgets": 8.9,
+  "sibujs/ssr": 40.1,
   "sibujs/devtools": 6.7,
-  "sibujs/performance": 3.3,
-  "sibujs/ecosystem": 1.8,
+  "sibujs/performance": 3.8,
+  "sibujs/ecosystem": 2.6,
   // sibujs-ui, marginal over the root. Tree-shakes hard: a single component
   // such as { Button } costs about 20 KB of this once its primitives land.
-  "sibujs-ui": 130.3,
+  "sibujs-ui": 132.4,
   // Individual named imports (tree-shaken sizes)
   signal: 0.3,
   effect: 0.2,
@@ -89,25 +89,27 @@ const MODULE_SIZES: Record<string, number> = {
 // Tag factory names share a single factory function, so the actual
 // tree-shaken cost is the factory (~0.3 KB) + ~0 per additional tag.
 // The reactivity core plus the rendering path (tag factories + mount) that any
-// SibuJS app pulls in on its first import. Measured at 25.9 KB min+gzip on
-// sibujs 4.0.0; the per-import rows below are marginal costs ON TOP of this,
+// SibuJS app pulls in on its first import. Measured at 35.0 KB min+gzip on
+// sibujs 4.14.0; the per-import rows below are marginal costs ON TOP of this,
 // which is why they are small. Without this base the total came out ~10x under
 // what a real bundle weighs.
-const BASE_RUNTIME_SIZE = 25.9;
+const BASE_RUNTIME_SIZE = 35.0;
 
 // Marginal cost of one named import from a sub-entry (sibujs/plugins, …) or
-// from sibujs-ui. Calibrated against four scaffolded apps built with Vite 8:
+// from sibujs-ui. Calibrated against four scaffolded apps built with Vite 8 on
+// sibujs 4.14.0 and sibujs-ui 1.9.1:
 //
 //   scaffold   non-root named imports   real js gzip   this model   delta
-//   plain                           0        26.9 KB      25.9 KB   -1.0
-//   router                          5        33.1 KB      32.7 KB   -0.4
-//   ui                              8        37.9 KB      36.7 KB   -1.2
-//   full                           13        43.3 KB      40.8 KB   -2.5
+//   plain                           0        35.6 KB      35.0 KB   -0.6
+//   router                          5        46.1 KB      42.8 KB   -3.3
+//   ui                              8        47.5 KB      47.4 KB   -0.1
+//   full                           13        56.0 KB      55.2 KB   -0.8
 //
 // It runs slightly under across all four, and it is a heuristic rather than a
-// bundler: a single import that drags in a large subsystem is understated, and
-// names shared between two sub-entries are counted once. Treat it as a floor.
-const PER_FEATURE_SIZE = 1.35;
+// bundler: a single import that drags in a large subsystem (the router) is
+// understated, and names shared between two sub-entries are counted once.
+// Treat it as a floor.
+const PER_FEATURE_SIZE = 1.55;
 const TAG_NAMES = new Set([
   "div",
   "span",

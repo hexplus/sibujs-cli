@@ -256,6 +256,12 @@ describe("argument forwarding is preserved", () => {
     build({ ssr: true }, { spawnFn, resolveBin, cwd: "/proj", onClose: () => {} });
     expect(calls[0].args).toEqual([FAKE_VITE, "build", "--ssr"]);
   });
+
+  it("build --ssr <entry> builds that server entry into dist-server/", () => {
+    const { calls, spawnFn } = makeFakeSpawn();
+    build({ ssr: "src/entry-server.ts" }, { spawnFn, resolveBin, cwd: "/proj", onClose: () => {} });
+    expect(calls[0].args).toEqual([FAKE_VITE, "build", "--ssr", "src/entry-server.ts", "--outDir", "dist-server"]);
+  });
 });
 
 describe("exit-code propagation and signal forwarding", () => {

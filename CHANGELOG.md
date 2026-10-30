@@ -6,6 +6,40 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.7.0] — 2026-10-30
+
+### Upgrade notes
+
+- Additive. Existing flags and templates are unchanged; projects created with
+  the new flags depend on `sibujs` `^4.14.0`.
+
+### Added — `sibujs create --prerender` and `--ssr`
+
+`--prerender` (implies `--router`) scaffolds a pre-rendered app: the route
+table in `src/routes.ts` with per-route `head`, `render: "client"` pages,
+`getStaticPaths` and a 404 route; a server entry; a page whose data comes from
+`fetch()` through `query()`; a `ClientOnly` canvas; and a Vite config whose
+`vite build` writes one HTML file per page plus `404.html`, `200.html`,
+`sitemap.xml` and `robots.txt`. The browser adopts the pre-rendered markup.
+
+`--ssr` adds `server.mjs`, which serves the static assets and renders pages per
+request with `createRenderHandler` (status codes, redirects, a page cache
+invalidated by `POST /__invalidate`), plus the scripts to build and start it.
+
+### Added — `sibujs prerender`
+
+Renders the built app again with the project's own `sibuVitePlugin({ prerender })`
+options, without rebuilding the bundle. `--routes /,/products/mug` refreshes
+only those pages and leaves `sitemap.xml`, `robots.txt` and `404.html` as the
+last full run wrote them.
+
+### Changed — `sibujs build --ssr <entry>`
+
+`--ssr` takes an optional server entry; with one, it is built into
+`dist-server/`. A bare `--ssr` behaves as before.
+
+---
+
 ## [1.6.0] — 2026-09-28
 
 ### Changed — template dependencies

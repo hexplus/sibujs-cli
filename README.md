@@ -32,6 +32,8 @@ Without flags the simplest possible app is created. Add flags to opt into featur
 | `--ui [theme]` | Add sibujs-ui with a theme color (includes Tailwind CSS). Themes: default, blue, green, red, orange, amber, yellow, teal, purple, violet, rose |
 | `--router`     | Add routing with example pages                                                                          |
 | `--tailwind`   | Add Tailwind CSS without sibujs-ui                                                                      |
+| `--prerender`  | Pre-render every route at build time (implies `--router`): per-route `<head>`, sitemap, a fetched-data page |
+| `--ssr`        | `--prerender` plus a Node server that renders pages per request                                        |
 
 Examples:
 
@@ -67,6 +69,25 @@ When `--router` is selected the project also includes:
 - `src/pages/Dashboard.ts` — Protected dashboard with nested routes (Overview, Settings) using `Outlet`
 
 When `--ui` is selected, `sibujs-ui` and the default theme are added automatically.
+
+When `--prerender` is selected (for a site served as static files, by any
+backend), the routing app becomes a pre-rendered one:
+
+- `src/routes.ts` — the route table with per-route `head` (title, description,
+  Open Graph, `robots`), `render: "client"` for the login and dashboard pages,
+  `getStaticPaths` for `/products/:id`, and a `*` route answering 404
+- `src/entry-server.ts` — what the build renders: the same routes, head and app
+- `src/pages/Products.ts` — data from `fetch("/api/products.json")` through
+  `query()`, rendered at build time and not fetched again in the browser
+- `src/components/Swatch.ts` — a `<canvas>` behind `ClientOnly`, with a
+  same-size fallback for the server
+- `src/main.ts` — adopts the pre-rendered page (`hydrate(…, { strategy: "adopt" })`)
+- `vite.config.ts` — `sibuVitePlugin({ prerender })`: `vite build` writes one HTML
+  file per page plus `404.html`, `200.html`, `sitemap.xml` and `robots.txt`
+
+`--ssr` adds `server.mjs` (static assets plus per-request rendering through
+`createRenderHandler`, with status codes, redirects and a page cache) and the
+`build` / `start` scripts that build and run it.
 
 ### `sibujs generate <type> <name>` (alias: `sibujs g`)
 
@@ -458,11 +479,28 @@ Build the project for production using Vite.
 ```bash
 sibujs build
 sibujs build --ssr
+sibujs build --ssr src/entry-server.ts
 ```
 
-| Flag      | Description                     |
-| --------- | ------------------------------- |
-| `--ssr` | Build for server-side rendering |
+| Flag              | Description                                                        |
+| ----------------- | ------------------------------------------------------------------ |
+| `--ssr [entry]` | Build for server-side rendering; with an entry, into `dist-server/` |
+
+### `sibujs prerender`
+
+Pre-render the built app again without rebuilding the client bundle — for when
+the data changed (an admin edit, a webhook). Uses the project's own
+`sibuVitePlugin({ prerender })` options.
+
+```bash
+sibujs prerender                                  # every route
+sibujs prerender --routes /,/products/mug         # only the pages that show the changed data
+```
+
+| Flag               | Description                                                                 |
+| ------------------ | --------------------------------------------------------------------------- |
+| `--routes <list>` | Comma-separated routes; `sitemap.xml`, `robots.txt` and `404.html` are kept |
+| `--config <file>` | Vite config file                                                            |
 
 ### `sibujs preview`
 

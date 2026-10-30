@@ -59,17 +59,17 @@ describe("templates use shorthand canonical syntax", () => {
 describe("templates dependency versions", () => {
   const pkgTpl = fs.readFileSync(path.join(TEMPLATES_ROOT, "default", "package.json.tpl"), "utf-8");
 
-  it("sibujs dependency is pinned to ^4.10.0", () => {
-    expect(pkgTpl).toMatch(/"sibujs":\s*"\^4\.10\.0"/);
+  it("sibujs dependency is pinned to ^4.14.1", () => {
+    expect(pkgTpl).toMatch(/"sibujs":\s*"\^4\.14\.1"/);
   });
 
-  it("sibujs-ui placeholder resolves to ^1.8.1", () => {
+  it("sibujs-ui placeholder resolves to ^1.9.1", () => {
     // The value is interpolated from create.ts — check the source.
     const createSrc = fs.readFileSync(
       path.resolve(__dirname, "..", "src", "commands", "create.ts"),
       "utf-8",
     );
-    expect(createSrc).toMatch(/"sibujs-ui":\s*"\^1\.8\.1"/);
+    expect(createSrc).toMatch(/"sibujs-ui":\s*"\^1\.9\.1"/);
   });
 
   it("declares a Node floor that satisfies both sibujs 4.0 and vite 8", () => {

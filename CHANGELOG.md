@@ -11,7 +11,7 @@ This project follows [Semantic Versioning](https://semver.org/).
 ### Upgrade notes
 
 - Additive. Existing flags and templates are unchanged; projects created with
-  the new flags depend on `sibujs` `^4.14.0`.
+  the new flags depend on `sibujs` `^4.14.1`.
 
 ### Added — `sibujs create --prerender` and `--ssr`
 
@@ -37,6 +37,19 @@ last full run wrote them.
 
 `--ssr` takes an optional server entry; with one, it is built into
 `dist-server/`. A bare `--ssr` behaves as before.
+
+### Changed — template dependencies and `sibujs analyze` sizes
+
+- Every template now starts from `sibujs` `^4.14.1` (the default template was
+  on `^4.10.0`) and, with `--ui`, `sibujs-ui` `^1.9.1` (was `^1.8.1`). All
+  five flag combinations were certified against the published packages: they
+  install, type-check, lint and build.
+- `sibujs analyze` measures against `sibujs` 4.14.0 and `sibujs-ui` 1.9.1. The
+  entry-point rows are re-measured (`sibujs/ssr` is 40.1 KB over the root, was
+  10.5 KB; `sibujs/plugins` 40.5 KB, was 18.7 KB), and the base and per-import
+  cost are recalibrated on the scaffolded apps: base 35.0 KB (was 25.9 KB),
+  1.55 KB per named import from a sub-entry or `sibujs-ui` (was 1.35 KB). The
+  estimate still runs slightly under a real build.
 
 ---
 

@@ -12,7 +12,7 @@
     "analyze": "sibujs analyze"
   },
   "dependencies": {
-    "sibujs": "^4.14.0"{{SIBUJS_UI_DEP}}{{TAILWIND_DEPS}}
+    "sibujs": "^4.14.1"{{SIBUJS_UI_DEP}}{{TAILWIND_DEPS}}
   },
   "devDependencies": {
     "sibujs-cli": "^1.7.0",

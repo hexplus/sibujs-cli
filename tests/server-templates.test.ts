@@ -40,7 +40,7 @@ describe("the --prerender overlay", () => {
   });
 
   it("depends on sibujs 4.14 and keeps the template conventions", () => {
-    expect(read("prerender/package.json.tpl")).toMatch(/"sibujs":\s*"\^4\.14\.0"/);
+    expect(read("prerender/package.json.tpl")).toMatch(/"sibujs":\s*"\^4\.14\.1"/);
     expect(read("prerender/package.json.tpl")).toContain('"prerender": "sibujs prerender"');
     for (const file of tsFiles(path.join(TEMPLATES_ROOT, "prerender", "src"))) {
       expect(fs.readFileSync(file, "utf-8"), file).not.toMatch(/[{,\n]\s*nodes\s*:/);

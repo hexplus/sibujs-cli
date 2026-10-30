@@ -249,7 +249,7 @@ export async function create(name?: string, options: CreateOptions = {}) {
 
   const replacements: Record<string, string> = {
     NAME: pkgName,
-    SIBUJS_UI_DEP: useUi ? `,\n    "sibujs-ui": "^1.8.1"` : "",
+    SIBUJS_UI_DEP: useUi ? `,\n    "sibujs-ui": "^1.9.1"` : "",
     TAILWIND_DEPS: useTailwind ? `,\n    "@tailwindcss/vite": "^4.3.3",\n    "tailwindcss": "^4.3.3"` : "",
     TAILWIND_IMPORT: useTailwind ? `import tailwindcss from "@tailwindcss/vite";\n` : "",
     TAILWIND_PLUGIN: useTailwind ? "\n    tailwindcss(),\n  " : "",

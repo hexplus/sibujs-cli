@@ -6,6 +6,16 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.7.1] — 2026-11-19
+
+### Changed — new projects start on sibujs 4.15.3
+
+`sibujs create` scaffolds every template (default, `--prerender`, `--ssr`) with
+`sibujs ^4.15.3` and `sibujs-cli ^1.7.1`, and `--ui` adds `sibujs-ui ^1.10.1`.
+Existing projects are unaffected.
+
+---
+
 ## [1.7.0] — 2026-10-30
 
 ### Upgrade notes

@@ -177,7 +177,7 @@ cli
   );
 
 cli.help();
-cli.version("1.7.0");
+cli.version("1.7.1");
 
 cli.on("command:*", () => {
   console.error(pc.red(`Unknown command: ${cli.args.join(" ")}`));

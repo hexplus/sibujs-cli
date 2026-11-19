@@ -39,8 +39,8 @@ describe("the --prerender overlay", () => {
     expect(JSON.parse(read("prerender/public/api/products.json")).length).toBeGreaterThan(0);
   });
 
-  it("depends on sibujs 4.14 and keeps the template conventions", () => {
-    expect(read("prerender/package.json.tpl")).toMatch(/"sibujs":\s*"\^4\.14\.1"/);
+  it("depends on sibujs 4.15.3 and keeps the template conventions", () => {
+    expect(read("prerender/package.json.tpl")).toMatch(/"sibujs":\s*"\^4\.15\.3"/);
     expect(read("prerender/package.json.tpl")).toContain('"prerender": "sibujs prerender"');
     for (const file of tsFiles(path.join(TEMPLATES_ROOT, "prerender", "src"))) {
       expect(fs.readFileSync(file, "utf-8"), file).not.toMatch(/[{,\n]\s*nodes\s*:/);
